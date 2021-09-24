@@ -573,6 +573,8 @@ class Objective:
         #最適化するパラメータの設定
         
         max_num_layer = 6 # Dense層の最大数
+        dropout_rate = 0.5 #dropoutの割合
+        l2 = 0.0001 # L2正則化の係数
         
         if trial._trial_id-1 == 0 and self.set_initial_parms: # 初期値の指定
             print(u'指定した初期値で学習を行います．')
@@ -592,10 +594,9 @@ class Objective:
             mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), initial_mid_units[i], initial_mid_units[i], 1)) for i in range(num_layer)]
             
             #活性化関数,leaky_relu
-            initial_alpha = [0.16065, 0.3003628, 0.152990, 0.16248, 0.49614, 0.153836]
-            alpha_num = num_layer + 1
-            alpha = [trial.suggest_uniform('alpha_'+str(i), initial_alpha[i], initial_alpha[i]) for i in range(alpha_num)]
-            activation = [LeakyReLU(alpha[i]) for i in range(alpha_num)]
+            initial_alpha = 0
+            alpha = trial.suggest_uniform('alpha', initial_alpha, initial_alpha)
+            activation = LeakyReLU(alpha)
             
             #optimizer,adam
             initial_learning_rate = 0.00065717
@@ -619,9 +620,8 @@ class Objective:
             mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), 1, 500, 1)) for i in range(num_layer)]
             
             #活性化関数,leaky_relu
-            alpha_num = num_layer + 1
-            alpha = [trial.suggest_uniform('alpha_'+str(i), 0, 5.0e-01) for i in range(alpha_num)]
-            activation = [LeakyReLU(alpha[i]) for i in range(alpha_num)]
+            alpha = trial.suggest_uniform('alpha', 0, 5.0e-01)
+            activation = LeakyReLU(alpha)
             
             #optimizer,adam
             learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2)
@@ -641,23 +641,21 @@ class Objective:
         
         #繰り返すオブジェクトにNoneの追加
         mid_units += [None]*(max_num_layer - num_layer)
-        activation += [None]*(max_num_layer + 1 - alpha_num)
-        # dropout_rate += [None]*(max_num_layer - len(dropout_rate))
 
         if self.model_type == 'Sequential':
             ''' Sequentialモデル '''
             print(u'Sequentialモデルによる学習を行います． outputの数：%d' % self.output_num)
             layers = (
-                      (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation[0], kernel_initializer='glorot_normal', input_shape=(32,32,2))),
-#                      (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation[0], depthwise_initializer='glorot_normal', input_shape=(32,32,2))),
+                      (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2), input_shape=(32,32,2))),
+#                      (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation, depthwise_initializer='glorot_normal', input_shape=(32,32,2))),
                       (MaxPooling2D, dict(pool_size=(2, 2), strides=1, switch=Pooling_switch)),
                       (Flatten),
-                      (Dense, mid_units[0], dict(activation=activation[1], kernel_initializer='glorot_normal')),
-                      (Dense, mid_units[1], dict(activation=activation[2], kernel_initializer='glorot_normal')),
-                      (Dense, mid_units[2], dict(activation=activation[3], kernel_initializer='glorot_normal')),
-                      (Dense, mid_units[3], dict(activation=activation[4], kernel_initializer='glorot_normal')),
-                      (Dense, mid_units[4], dict(activation=activation[5], kernel_initializer='glorot_normal')),
-                      (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last')),
+                      (Dense, mid_units[0], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      (Dense, mid_units[2], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      (Dense, mid_units[1], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      (Dense, mid_units[3], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      (Dense, mid_units[4], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
                       )
             with self.strategy.scope():
                 model = my_sequential_model_builder(layers = layers, optimizer = OPTIMIZER, loss=['mae'], metrics='MAPE')
@@ -670,7 +668,7 @@ class Objective:
                 input1 = Input(shape = self.input_shape)
                 input2 = Input(shape = self.input_shape)
                 preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
-                c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation[0], kernel_initializer='glorot_normal')
+                c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
                 flatten_layer =  Flatten()
                 # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
                 # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
@@ -680,8 +678,9 @@ class Objective:
                 x2 = flatten_layer(c2d(preprocessing_layer(input2)))
                 x = Concatenate()([x1, x2])
                 for i in range(num_layer):
-                    x = Dense(units = mid_units[i], activation = activation[i+1], kernel_initializer='glorot_normal')(x)
-                output = Dense(units = self.output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last')(x)
+                    x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
+                    x = Dropout(dropout_rate)(x, training=True)
+                output = Dense(units = self.output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
                 model = tf.keras.Model(inputs = [input1, input2], outputs = output)
                 model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
             model.summary()
