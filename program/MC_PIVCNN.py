@@ -9,6 +9,7 @@
 #-b[atch]                      -> 訓練データをバッチごとに読み込む．
 #-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．
 #-i[nitial]                    -> 最適化の初期値を固定して実行．
+#-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．
 #-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．
 #-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．
 #-c[onfirmation]               -> 最適なハイパーパラメータの確認．
@@ -20,6 +21,7 @@
 #並列計算における分割数   : シングルコアで実行
 #データの保存場所         : 作業フォルダ
 #出力数                 : 2
+#ドロップアウト層の値     : 0.5
 
 import sys
 import tensorflow as tf
@@ -552,7 +554,7 @@ def my_loss_function(y_true, y_pred):
     return mean_absolute_percentage_error(y_true, y_pred)/100
 
 class Objective:
-    def __init__(self, strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, set_initial_parms, model_type):
+    def __init__(self, strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, monte_carlo_dropout, dropout_rate, set_initial_parms, model_type):
         self.strategy = strategy
         self.input_shape = input_shape
         self.y_dim = y_dim
@@ -562,6 +564,8 @@ class Objective:
         self.minimize_loss = minimize_loss
         self.load_split_batch = load_split_batch
         self.am_list = am_list
+        self.monte_carlo_dropout = monte_carlo_dropout
+        self.dropout_rate = dropout_rate
         self.set_initial_parms = set_initial_parms
         self.model_type = model_type
         self.opt_figure = LossHistory()
@@ -573,7 +577,6 @@ class Objective:
         #最適化するパラメータの設定
         
         max_num_layer = 6 # Dense層の最大数
-        dropout_rate = 0.5 #dropoutの割合
         l2 = 0.0001 # L2正則化の係数
         
         if trial._trial_id-1 == 0 and self.set_initial_parms: # 初期値の指定
@@ -638,27 +641,41 @@ class Objective:
 
         # batch_size
         batch_size = 2**batch_size_index
-        
-        #繰り返すオブジェクトにNoneの追加
-        mid_units += [None]*(max_num_layer - num_layer)
 
         if self.model_type == 'Sequential':
             ''' Sequentialモデル '''
             print(u'Sequentialモデルによる学習を行います． outputの数：%d' % self.output_num)
+            dense_list = [(Dense, mid_units[i], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))) for i in num_layer]
             layers = (
                       (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2), input_shape=(32,32,2))),
 #                      (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation, depthwise_initializer='glorot_normal', input_shape=(32,32,2))),
                       (MaxPooling2D, dict(pool_size=(2, 2), strides=1, switch=Pooling_switch)),
                       (Flatten),
-                      (Dense, mid_units[0], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
-                      (Dense, mid_units[2], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
-                      (Dense, mid_units[1], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
-                      (Dense, mid_units[3], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
-                      (Dense, mid_units[4], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))),
+                      dense_list[0],
+                      (Dropout, self.dropout_rate),
+                      dense_list[1],
+                      (Dropout, self.dropout_rate),
+                      dense_list[2],
+                      (Dropout, self.dropout_rate),
+                      dense_list[3],
+                      (Dropout, self.dropout_rate),
+                      dense_list[4],
+                      (Dropout, self.dropout_rate),
                       (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
                       )
             with self.strategy.scope():
                 model = my_sequential_model_builder(layers = layers, optimizer = OPTIMIZER, loss=['mae'], metrics='MAPE')
+                for ily, layer in enumerate(model.layers):
+                    # input layer
+                    if ily == 0:
+                        input = layer.input
+                        h = input
+                    # is dropout layer ?
+                    if 'dropout' in layer.name:
+                        # change dropout layer
+                        h = Dropout(layer.rate)(h, training=True)
+                    else:
+                        h = layer(h)
             model.summary()
 
         elif self.model_type == 'functional_API':
@@ -679,7 +696,8 @@ class Objective:
                 x = Concatenate()([x1, x2])
                 for i in range(num_layer):
                     x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
-                    x = Dropout(dropout_rate)(x, training=True)
+                    if self.monte_carlo_dropout:
+                        x = Dropout(self.dropout_rate)(x, training=True)
                 output = Dense(units = self.output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
                 model = tf.keras.Model(inputs = [input1, input2], outputs = output)
                 model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
@@ -774,12 +792,12 @@ class Objective:
         return loss
 
 def input_str(message):
-    return raw_input(message) if sys.version_info.major <= 2 else input(message)
+    return (raw_input if sys.version_info.major <= 2 else input)(message)
 
 def input_int(message):
     while True:
         try:
-            x = int(raw_input(message) if sys.version_info.major <= 2 else input(message))
+            x = int((raw_input if sys.version_info.major <= 2 else input)(message))
             return x
         except:
             pass
@@ -787,7 +805,7 @@ def input_int(message):
 def input_float(message):
     while True:
         try:
-            x = float(raw_input(message) if sys.version_info.major <= 2 else input(message))
+            x = float((raw_input if sys.version_info.major <= 2 else input)(message))
             return x
         except:
             pass
@@ -800,6 +818,9 @@ if __name__ == '__main__':
     load_split_batch = False
     output_num = 2 # 出力数のデフォルト値
     output_axis = 0 # プレースホルダー
+    monte_carlo_dropout = False
+    dropout_rate = None # ドロップアウト層の値
+    default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
     set_initial_parms = False
     n_jobs = 1 # シングルコアでの実行
     time_out = None
@@ -814,6 +835,7 @@ if __name__ == '__main__':
                    u'-r[emove]                     -> 最適化の前回までのデータがある場合，それを消す．\n' +
                    u'-b[atch]                      -> 訓練データをバッチごとに読み込む．\n' +
                    u'-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
+                   u'-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
                    u'-i[nitial]                    -> 最適化の初期値を固定して実行．\n' +
                    u'-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．\n' +
                    u'-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．\n' +
@@ -824,7 +846,8 @@ if __name__ == '__main__':
                    u'前回までの最適化データ    : 前回の続きから開始する\n' +
                    u'並列計算における分割数   : シングルコアで実行\n' +
                    u'データの保存場所         : 作業フォルダ\n' +
-                   u'出力数                 : 2\n'
+                   u'出力数                 : 2\n' +
+                   u'ドロップアウト層の値     : 0.5\n'
                    )
             quit()
         elif sys.argv[i].lower().startswith('-d'):
@@ -841,6 +864,9 @@ if __name__ == '__main__':
             if output_num == 1:
                 i += 1
                 output_axis = sys.argv[i]
+        elif sys.argv[i].lower().startswith('-m'):
+            monte_carlo_dropout = True
+            dropout_rate = default_dropout_rate # ドロップアウト層の値
         elif sys.argv[i].lower().startswith('-i'):
             set_initial_parms = True
         elif sys.argv[i].lower().startswith('-n'):
@@ -882,6 +908,20 @@ if __name__ == '__main__':
     
     # Optunaの設定，並列処理数の指定
     if interactive_mode:
+        if input_str('モンテカルロドロップアウトの学習モデルにしますか．（予測時にもドロップアウト層を使うような学習モデル．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
+            monte_carlo_dropout = True
+            while True:
+                try:
+                    dropout_rate = (raw_input if sys.version_info.major <= 2 else input)('ドロップアウト層の値を入力してください．(0~1．デフォルトは0.5) >> ')
+                    if len(dropout_rate) == 0:
+                        dropout_rate = default_dropout_rate
+                        break
+                    dropout_rate = float(dropout_rate)
+                    assert 0.0 <= dropout_rate and dropout_rate <= 1.0
+                    break
+                except:
+                    pass
+
         if input_str('Optunaによる最適化に指定した初期値を使いますか．（初期値は {} に直接書き込む必要があります．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
             set_initial_parms = True
         n_jobs = max(input_int('memmapファイル作成時の並列処理の分割数を指定してください．（最大分割数{}，1だとシングルコアで計算．）>> '.format(multiprocessing.cpu_count())), 1)
@@ -999,7 +1039,7 @@ if __name__ == '__main__':
                     data_size.append(y_memmap.reshape(-1, y_dim).shape[0]) # memmapファイルを利用して学習を行う．
                     del y_memmap
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
-        objective = Objective(strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, set_initial_parms, model_type)
+        objective = Objective(strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, monte_carlo_dropout, dropout_rate, set_initial_parms, model_type)
         study.optimize(objective, timeout=time_out)
     
     pruned_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.PRUNED]
