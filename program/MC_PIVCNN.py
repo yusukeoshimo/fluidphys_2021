@@ -60,6 +60,7 @@ from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import LeakyReLU
+from tensorflow.keras import regularizers
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.metrics import mean_absolute_percentage_error
 from tensorflow.keras import callbacks
