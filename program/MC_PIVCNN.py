@@ -727,7 +727,7 @@ class Objective:
         epochs = 100
         
         # モデルの学習
-        model_train(model, verbose, epochs, callbacks, self.load_split_batch, self.model_type)
+        model_train(model, verbose, epochs, batch_size, callbacks, self.load_split_batch, self.model_type)
         
         #損失の比較，モデルの保存
         loss = history.history['val_loss'][-1]
@@ -743,7 +743,7 @@ class Objective:
         #検証用データに対する損失が最小となるハイパーパラメータを求める
         return loss
 
-def model_train(model, verbose, epochs, callbacks, load_split_batch, model_type):
+def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type):
     if not load_split_batch:
         #訓練データを外から中に入れる
         x_train_copy = np.copy(x_train_data)
@@ -800,8 +800,6 @@ def restudy():
     model = tf.keras.models.load_model(best_model_name, custom_objects={'LeakyReLU': LeakyReLU})
 
     for index, layer in enumerate(model.layers):
-        print(index)
-        print(layer.name)
         if index == 0:
             input1 = layer.input
             h1 = input1
@@ -820,22 +818,21 @@ def restudy():
             h = layer(h)
 
     Model = tf.keras.Model([input1,input2],h)
-    Model.compile(optimizer = model.optimizer, loss = model.loss, metrics = model.metrics)
+    Model.compile(optimizer = model.optimizer, loss = 'mae', metrics = 'mape')
     Model.summary()
 
     for key, value in study.best_trial.params.items():
         if 'batch' in key:
             batch_size = 2 ** value
-
     # モデルの学習の設定
     verbose = 1
     epochs = 300
 
     #epoch毎にグラフ描画
-    cb_figure = LossHistory(save_name = 'MC_model_history')
+    cb_figure = LossHistory(save_name = 'MC_model_history', am_list=am_list)
     callbacks = [cb_figure]
 
-    model_train(Model, verbose, epochs, callbacks, load_split_batch, model_type)
+    model_train(Model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type)
     model.save('MC_model.h5')
 
 def input_str(message):
