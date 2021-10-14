@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 22:58 2021/07/14
-# optimize_PIVCNN.py
+# 2021-09-29 15:49:06
+# MC_PIVCNN.py
 
 #---- オプション ----
 #-d[irectory] dir_path         -> 訓練データがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可
@@ -92,8 +92,9 @@ def mode_detect():
 
 #動的グラフを描画するためのクラス，ネット参照
 class LossHistory(callbacks.Callback):
-    def __init__(self, trial_num=None, loss='loss', metrics=None, minimize_loss=None, am_list=None, output_num=None, memmap_dir=None):
+    def __init__(self, save_name = None, trial_num=None, loss='loss', metrics=None, minimize_loss=None, am_list=None, output_num=None, memmap_dir=None):
         # コンストラクタに保持用の配列を宣言しておく
+        self.save_name = save_name
         self.trial_num = trial_num
         self.loss = loss
         self.metrics = metrics
@@ -174,7 +175,7 @@ class LossHistory(callbacks.Callback):
             adjust_text(texts) # テキスト位置の整理
             plt.legend()
             
-            fig.savefig('best_model_history.png', bbox_inches="tight", pad_inches=0.05)
+            fig.savefig(self.save_name + '.png', bbox_inches="tight", pad_inches=0.05)
         # 訓練終了時にリストを初期化
         self.train_metrics.clear()
         self.val_metrics.clear()
@@ -555,7 +556,7 @@ def my_loss_function(y_true, y_pred):
     return mean_absolute_percentage_error(y_true, y_pred)/100
 
 class Objective:
-    def __init__(self, strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, monte_carlo_dropout, dropout_rate, set_initial_parms, model_type):
+    def __init__(self, strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, dropout_rate, set_initial_parms, model_type, best_model_name):
         self.strategy = strategy
         self.input_shape = input_shape
         self.y_dim = y_dim
@@ -565,10 +566,10 @@ class Objective:
         self.minimize_loss = minimize_loss
         self.load_split_batch = load_split_batch
         self.am_list = am_list
-        self.monte_carlo_dropout = monte_carlo_dropout
         self.dropout_rate = dropout_rate
         self.set_initial_parms = set_initial_parms
         self.model_type = model_type
+        self.best_model_name = best_model_name
         self.opt_figure = LossHistory()
 
     def __call__(self, trial):
@@ -697,8 +698,6 @@ class Objective:
                 x = Concatenate()([x1, x2])
                 for i in range(num_layer):
                     x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
-                    if self.monte_carlo_dropout:
-                        x = Dropout(self.dropout_rate)(x, training=True)
                 output = Dense(units = self.output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
                 model = tf.keras.Model(inputs = [input1, input2], outputs = output)
                 model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
@@ -712,7 +711,7 @@ class Objective:
         nan = keras.callbacks.TerminateOnNaN()
         
         #epoch毎にグラフ描画
-        cb_figure = LossHistory(trial_num=trial._trial_id-1, metrics='my_mape', minimize_loss=self.minimize_loss, am_list=self.am_list, output_num=self.output_num, memmap_dir=self.memmap_dir)
+        cb_figure = LossHistory(save_name = 'best_model_history', trial_num=trial._trial_id-1, metrics='my_mape', minimize_loss=self.minimize_loss, am_list=self.am_list, output_num=self.output_num, memmap_dir=self.memmap_dir)
         
         #畳み込み層の重みの共有
         copy_weights = CopyWeights(model)
@@ -723,66 +722,18 @@ class Objective:
         #使用するコールバックスの指定
         callbacks = [es, nan, cb_figure]
 
-        # hold-out法によるモデルの学習
+        # モデルの学習の設定
         verbose = 1
         epochs = 100
         
-        if not self.load_split_batch:
-            #訓練データを外から中に入れる
-            x_train_copy = np.copy(x_train_data)
-            y_train_copy = np.copy(y_train_data)
-            x_val_copy = np.copy(x_val_data)
-            y_val_copy = np.copy(y_val_data)
-            print([x_train_copy[:,:,:,0].shape,x_train_copy[:,:,:,1].shape])
-            
-            if self.model_type == 'Sequential':
-                history = model.fit(x_train_copy,
-                                    y_train_copy,
-                                    verbose=verbose,
-                                    epochs=epochs,
-                                    batch_size=batch_size,
-                                    validation_data=(x_val_copy, y_val_copy),
-                                    callbacks=callbacks,
-                                    )
-            elif self.model_type == 'functional_API':
-                history = model.fit([x_train_copy[:,:,:,0],x_train_copy[:,:,:,1]],
-                                    y_train_copy,
-                                    verbose=verbose,
-                                    epochs=epochs,
-                                    batch_size=batch_size,
-                                    validation_data=([x_val_copy[:,:,:,0], x_val_copy[:,:,:,1]], y_val_copy),
-                                    callbacks=callbacks,
-                                    )
-            
-            del x_train_copy, y_train_copy
-        else:
-            #データ数を外から中に入れる
-            train_data_size = data_size[0]
-            val_data_size = data_size[1]
-            
-            # バッチごとにデータの読み込み
-            if self.model_type == 'Sequential':
-                history = model.fit(x=MySequence(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
-                                    verbose=verbose,
-                                    epochs=epochs,
-                                    callbacks=callbacks,
-                                    validation_data=MySequence(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
-                                    )
-            elif self.model_type == 'functional_API':
-                history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
-                                    verbose=verbose,
-                                    epochs=epochs,
-                                    callbacks=callbacks,
-                                    validation_data=MySequenceF(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
-                                    )
-                
-            del train_data_size, val_data_size
-            
+        # モデルの学習
+        model_train(verbose, epoch, callbacks, self.load_split_batch, self.model_type)
+        
         #損失の比較，モデルの保存
         loss = history.history['val_loss'][-1]
         if self.minimize_loss > loss:
             self.minimize_loss = loss
-            model.save('best_model.h5')
+            model.save(self.best_model_name)
 
         #メモリの開放
         keras.backend.clear_session()
@@ -791,6 +742,97 @@ class Objective:
         
         #検証用データに対する損失が最小となるハイパーパラメータを求める
         return loss
+
+def model_train(verbose, epoch, callbacks, load_split_batch, model_type):
+    if not load_split_batch:
+        #訓練データを外から中に入れる
+        x_train_copy = np.copy(x_train_data)
+        y_train_copy = np.copy(y_train_data)
+        x_val_copy = np.copy(x_val_data)
+        y_val_copy = np.copy(y_val_data)
+        print([x_train_copy[:,:,:,0].shape,x_train_copy[:,:,:,1].shape])
+        
+        if model_type == 'Sequential':
+            history = model.fit(x_train_copy,
+                                y_train_copy,
+                                verbose=verbose,
+                                epochs=epochs,
+                                batch_size=batch_size,
+                                validation_data=(x_val_copy, y_val_copy),
+                                callbacks=callbacks,
+                                )
+        elif model_type == 'functional_API':
+            history = model.fit([x_train_copy[:,:,:,0],x_train_copy[:,:,:,1]],
+                                y_train_copy,
+                                verbose=verbose,
+                                epochs=epochs,
+                                batch_size=batch_size,
+                                validation_data=([x_val_copy[:,:,:,0], x_val_copy[:,:,:,1]], y_val_copy),
+                                callbacks=callbacks,
+                                )
+        
+        del x_train_copy, y_train_copy
+    else:
+        #データ数を外から中に入れる
+        train_data_size = data_size[0]
+        val_data_size = data_size[1]
+        
+        # バッチごとにデータの読み込み
+        if model_type == 'Sequential':
+            history = model.fit(x=MySequence(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                verbose=verbose,
+                                epochs=epochs,
+                                callbacks=callbacks,
+                                validation_data=MySequence(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                )
+        elif model_type == 'functional_API':
+            history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                verbose=verbose,
+                                epochs=epochs,
+                                callbacks=callbacks,
+                                validation_data=MySequenceF(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                )
+            
+        del train_data_size, val_data_size
+
+
+def restudy():
+    model = tf.keras.models.load_model(best_model_name, custom_objects={'LeakyReLU': LeakyReLU})
+
+    for index, layer in enumerate(model.layers):
+        print(index)
+        print(layer.name)
+        if index == 0:
+            input1 = layer.input
+            h1 = input1
+        elif index == 1:
+            input2 = layer.input
+            h2 = input2
+        elif 'lambda' in layer.name or 'conv2d' in layer.name or 'flatten' in layer.name:
+            h1 = layer(h1)
+            h2 = layer(h2)
+        elif 'concatenate' in layer.name:
+            h = layer([h1, h2])
+        elif 'dense' in layer.name and not 'last' in layer.name:
+            h = layer(h)
+            h = Dropout(0.5)(h, training=True)
+        elif 'last' in layer.name:
+            h = layer(h)
+
+    Model = tf.keras.Model([input1,input2],h)
+    Model.compile(optimizer = model.optimizer, loss = model.loss, metrics = model.metrics)
+    Model.summary()
+
+    # モデルの学習の設定
+    verbose = 1
+    epochs = 100
+
+    #epoch毎にグラフ描画
+    cb_figure = LossHistory(save_name = 'MC_model_history')
+    callbacks = [cb_figure]
+
+    model_train(verbose, epoch, callbacks, load_split_batch, model_type)
+    model.save('MC_model.h5')
 
 def input_str(message):
     return (raw_input if sys.version_info.major <= 2 else input)(message)
@@ -880,37 +922,28 @@ if __name__ == '__main__':
             check_param = True
         i += 1
 
-    print('\n'
-          '*************************************'
-          ' これはHold-Out法による学習です．'
-          '*************************************'
-          '\n')
+        
+    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     
+    strategy = mode_detect() # ハードウェア情報取得
     study_name = 'optimize-CNN' # 最適化計算の名前
-    study_name_path = study_name+'.db'
+    study_name_path = study_name + '.db'
+    y_dim = 3 # 変位の次元数
+    memmap_dir = 'memmap' # デフォルトでmemmapを保存するディレクトリ
+    first_divide = 0.2 # 8:2，学習データ:テストデータ
+    second_devide = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
+    model_type = 'functional_API' # Sequential / functional_API
+    best_model_name = 'best_model.h5'
+    exist_best_model = os.path.exists(best_model_name)# 解析ディレクトリに学習モデルがあるかの確認．
+    input_shape = (32, 32) # 入力データの形状，32[pixel]×32[pixel]
     
-    # optunaによる最適化データの削除の確認．
-    if interactive_mode:
-        if input_str('前回までの最適化データがある場合，それを削除しますか．（y/n）>> ').lower().startswith('y'):
-            reset_optimize = True
-    if reset_optimize and not check_param:
-        if os.path.exists(study_name_path):
-            os.remove(study_name_path)
-    
-    study = optuna.create_study(storage='sqlite:///optimize-CNN.db',
-                                study_name=study_name,
-                                load_if_exists=True,
-                                pruner=optuna.pruners.PercentilePruner(60, interval_steps=10), # 枝刈りの設定，詳しくはhttps://optuna.readthedocs.io/en/stable/reference/pruners.html
-                                )
-    try:
-        minimize_loss = study.best_trial.value
-    except:
-        minimize_loss = 1.0e5 # 最小値問題なので，初期値は何でもいいので大きい値．
-    
-    # Optunaの設定，並列処理数の指定
+    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
+
+    # 予測時にもドロップアウト層を有効にした学習モデルで再学習を行う．
     if interactive_mode:
         if input_str('モンテカルロドロップアウトの学習モデルにしますか．（予測時にもドロップアウト層を使うような学習モデル．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
             monte_carlo_dropout = True
+            interactive_mode = False
             while True:
                 try:
                     dropout_rate = (raw_input if sys.version_info.major <= 2 else input)('ドロップアウト層の値を入力してください．(0~1．デフォルトは0.5) >> ')
@@ -923,36 +956,11 @@ if __name__ == '__main__':
                 except:
                     pass
 
-        if input_str('Optunaによる最適化に指定した初期値を使いますか．（初期値は {} に直接書き込む必要があります．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
-            set_initial_parms = True
-        n_jobs = max(input_int('memmapファイル作成時の並列処理の分割数を指定してください．（最大分割数{}，1だとシングルコアで計算．）>> '.format(multiprocessing.cpu_count())), 1)
-        time_out = input_str('Optunaによる最適化の計算時間を指定してください．（単位[hour]，指定しなければずっと計算を行う．）>> ')
-        try:
-            time_out=float(time_out)*60*60 # hour -> secondに変換
-        except:
-            time_out=None
-        
-    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
-    
-    strategy = mode_detect() # ハードウェア情報取得
-    y_dim = 3 # 変位の次元数
-    memmap_dir = 'memmap' # デフォルトでmemmapを保存するディレクトリ
-    first_divide = 0.2 # 8:2，学習データ:テストデータ
-    second_devide = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
-    model_type = 'functional_API' # Sequential / functional_API
-    input_shape = (32, 32) # 入力データの形状，32[pixel]×32[pixel]
-    
-    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     # モデル構造の確認
     if interactive_mode:
         check_model_type = input_str(u'モデル構造が%sになっています．このまま学習を開始しますか？（nで終了）>> ' % model_type)
         if check_model_type.lower().strip() == 'n':
             quit()
-    
-    # 学習データの読み込み条件の指定．
-    if interactive_mode:
-        if input_str('学習データをバッチごとに読み込みますか．（データが多いときはy，y/n）>> ').lower().strip().startswith('y'):
-            load_split_batch = True
     
     # 出力数の決定
     if interactive_mode:
@@ -970,10 +978,48 @@ if __name__ == '__main__':
     
     # 学習データの読み込み
     if interactive_mode or not data_determination:
-        data_directory = input_str('学習に使うディレクトリを指定してください．>> ').strip()
+        data_directory = input_str('学習データのディレクトリを指定してください．>> ').strip()
     if any(['.npy' in i for i in os.listdir(data_directory)]): # 学習データのディレクトリの中身がmemmapの拡張子か判定．
         use_memmap = True
     
+    # 学習データの読み込み条件の指定．
+    if interactive_mode:
+        if input_str('学習データをバッチごとに読み込みますか．（データが多いときはy，y/n）>> ').lower().strip().startswith('y'):
+            load_split_batch = True
+    
+    # 前回までの最適化データの削除
+    if interactive_mode:
+        if input_str('前回までの最適化データがある場合，それを削除しますか．（y/n）>> ').lower().startswith('y'):
+            reset_optimize = True
+    if reset_optimize and not check_param:
+        if os.path.exists(study_name_path):
+            os.remove(study_name_path)
+    
+    # Optunaの設定，並列処理数の指定
+    if interactive_mode:
+        if input_str('Optunaによる最適化に指定した初期値を使いますか．（初期値は {} に直接書き込む必要があります．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
+            set_initial_parms = True
+        n_jobs = max(input_int('memmapファイル作成時の並列処理の分割数を指定してください．（最大分割数{}，1だとシングルコアで計算．）>> '.format(multiprocessing.cpu_count())), 1)
+        time_out = input_str('Optunaによる最適化の計算時間を指定してください．（単位[hour]，指定しなければずっと計算を行う．）>> ')
+        try:
+            time_out=float(time_out)*60*60 # hour -> secondに変換
+        except:
+            time_out=None
+
+    # 最適化関数のインスタンス化
+    if monte_carlo_dropout and exist_best_model:
+        pass
+    else:
+        study = optuna.create_study(storage='sqlite:///optimize-CNN.db',
+                                    study_name=study_name,
+                                    load_if_exists=True,
+                                    pruner=optuna.pruners.PercentilePruner(60, interval_steps=10), # 枝刈りの設定，詳しくはhttps://optuna.readthedocs.io/en/stable/reference/pruners.html
+                                    )
+        try:
+            minimize_loss = study.best_trial.value
+        except:
+            minimize_loss = 1.0e5 # 最小値問題なので，初期値は何でもいいので大きい値．
+
     if not check_param:
         if not use_memmap: # memmapファイルを使わない場合
             os.makedirs(memmap_dir, exist_ok=True) # memmapファイルを保存するディレクトリの作成．
@@ -1040,8 +1086,14 @@ if __name__ == '__main__':
                     data_size.append(y_memmap.reshape(-1, y_dim).shape[0]) # memmapファイルを利用して学習を行う．
                     del y_memmap
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
-        objective = Objective(strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, monte_carlo_dropout, dropout_rate, set_initial_parms, model_type)
-        study.optimize(objective, timeout=time_out)
+        if monte_carlo_dropout and exist_best_model:
+            restudy()
+        else:
+            objective = Objective(strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, dropout_rate, set_initial_parms, model_type, best_model_name)
+            study.optimize(objective, timeout=time_out)
+        if monte_carlo_dropout and not exist_best_model:
+            restudy()
+
     
     pruned_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.PRUNED]
     complete_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.COMPLETE]
