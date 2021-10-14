@@ -727,7 +727,7 @@ class Objective:
         epochs = 100
         
         # モデルの学習
-        model_train(verbose, epoch, callbacks, self.load_split_batch, self.model_type)
+        model_train(model, verbose, epochs, callbacks, self.load_split_batch, self.model_type)
         
         #損失の比較，モデルの保存
         loss = history.history['val_loss'][-1]
@@ -743,7 +743,7 @@ class Objective:
         #検証用データに対する損失が最小となるハイパーパラメータを求める
         return loss
 
-def model_train(verbose, epoch, callbacks, load_split_batch, model_type):
+def model_train(model, verbose, epochs, callbacks, load_split_batch, model_type):
     if not load_split_batch:
         #訓練データを外から中に入れる
         x_train_copy = np.copy(x_train_data)
@@ -779,18 +779,18 @@ def model_train(verbose, epoch, callbacks, load_split_batch, model_type):
         
         # バッチごとにデータの読み込み
         if model_type == 'Sequential':
-            history = model.fit(x=MySequence(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+            history = model.fit(x=MySequence(train_data_size, batch_size, 'train_data', memmap_dir, y_dim, output_num, output_axis),
                                 verbose=verbose,
                                 epochs=epochs,
                                 callbacks=callbacks,
-                                validation_data=MySequence(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                validation_data=MySequence(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
                                 )
         elif model_type == 'functional_API':
-            history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+            history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', memmap_dir, y_dim, output_num, output_axis),
                                 verbose=verbose,
                                 epochs=epochs,
                                 callbacks=callbacks,
-                                validation_data=MySequenceF(val_data_size, batch_size, 'val_data', self.memmap_dir, self.y_dim, self.output_num, self.output_axis),
+                                validation_data=MySequenceF(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
                                 )
             
         del train_data_size, val_data_size
@@ -823,15 +823,19 @@ def restudy():
     Model.compile(optimizer = model.optimizer, loss = model.loss, metrics = model.metrics)
     Model.summary()
 
+    for key, value in study.best_trial.params.items():
+        if 'batch' in key:
+            batch_size = 2 ** value
+
     # モデルの学習の設定
     verbose = 1
-    epochs = 100
+    epochs = 300
 
     #epoch毎にグラフ描画
     cb_figure = LossHistory(save_name = 'MC_model_history')
     callbacks = [cb_figure]
 
-    model_train(verbose, epoch, callbacks, load_split_batch, model_type)
+    model_train(Model, verbose, epochs, callbacks, load_split_batch, model_type)
     model.save('MC_model.h5')
 
 def input_str(message):
@@ -1007,18 +1011,15 @@ if __name__ == '__main__':
             time_out=None
 
     # 最適化関数のインスタンス化
-    if monte_carlo_dropout and exist_best_model:
-        pass
-    else:
-        study = optuna.create_study(storage='sqlite:///optimize-CNN.db',
-                                    study_name=study_name,
-                                    load_if_exists=True,
-                                    pruner=optuna.pruners.PercentilePruner(60, interval_steps=10), # 枝刈りの設定，詳しくはhttps://optuna.readthedocs.io/en/stable/reference/pruners.html
-                                    )
-        try:
-            minimize_loss = study.best_trial.value
-        except:
-            minimize_loss = 1.0e5 # 最小値問題なので，初期値は何でもいいので大きい値．
+    study = optuna.create_study(storage='sqlite:///optimize-CNN.db',
+                                study_name=study_name,
+                                load_if_exists=True,
+                                pruner=optuna.pruners.PercentilePruner(60, interval_steps=10), # 枝刈りの設定，詳しくはhttps://optuna.readthedocs.io/en/stable/reference/pruners.html
+                                )
+    try:
+        minimize_loss = study.best_trial.value
+    except:
+        minimize_loss = 1.0e5 # 最小値問題なので，初期値は何でもいいので大きい値．
 
     if not check_param:
         if not use_memmap: # memmapファイルを使わない場合
