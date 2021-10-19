@@ -11,7 +11,7 @@ from tensorflow.keras.layers import LeakyReLU
 from my_model import model_train
 from my_callbacks import LossHistory
 
-def restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study):
+def restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study):
     model = tf.keras.models.load_model(best_model_name, custom_objects={'LeakyReLU': LeakyReLU})
 
     for index, layer in enumerate(model.layers):
@@ -51,5 +51,5 @@ def restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, m
     cb_figure = LossHistory(save_name = 'MC_model_history', memmap_dir=memmap_dir, am_list=am_list, output_num=output_num)
     callbacks = [cb_figure]
 
-    Model, history = model_train(Model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size)
+    Model, history = model_train(Model, verbose, epochs, batch_size, callbacks, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size)
     Model.save('MC_model.h5')

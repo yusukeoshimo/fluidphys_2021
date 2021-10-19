@@ -127,7 +127,7 @@ def my_sequential_model_builder(layers = None, optimizer = 'rmsprop', loss = Non
     model.compile(optimizer = optimizer, loss = loss, metrics = metrics)
     return model
 
-def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size):
+def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size):
     if not load_split_batch:
         #訓練データを外から中に入れる
         x_train_data = np.memmap(filename=os.path.join(memmap_dir, 'x_train_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
@@ -135,24 +135,14 @@ def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch,
         x_val_data = np.memmap(filename=os.path.join(memmap_dir, 'x_val_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
         y_val_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_val_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
         
-        if model_type == 'Sequential':
-            history = model.fit(x_train_data,
-                                y_train_data,
-                                verbose=verbose,
-                                epochs=epochs,
-                                batch_size=batch_size,
-                                validation_data=(x_val_data, y_val_data),
-                                callbacks=callbacks,
-                                )
-        elif model_type == 'functional_API':
-            history = model.fit([x_train_data[:,:,:,0],x_train_data[:,:,:,1]],
-                                y_train_data,
-                                verbose=verbose,
-                                epochs=epochs,
-                                batch_size=batch_size,
-                                validation_data=([x_val_data[:,:,:,0], x_val_data[:,:,:,1]], y_val_data),
-                                callbacks=callbacks,
-                                )
+        history = model.fit([x_train_data[:,:,:,0],x_train_data[:,:,:,1]],
+                            y_train_data,
+                            verbose=verbose,
+                            epochs=epochs,
+                            batch_size=batch_size,
+                            validation_data=([x_val_data[:,:,:,0], x_val_data[:,:,:,1]], y_val_data),
+                            callbacks=callbacks,
+                            )
         
         del x_train_data, y_train_data
     else:
@@ -161,20 +151,13 @@ def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch,
         val_data_size = data_size[1]
         
         # バッチごとにデータの読み込み
-        if model_type == 'Sequential':
-            history = model.fit(x=MySequence(train_data_size, batch_size, 'train_data', memmap_dir, y_dim, output_num, output_axis),
-                                verbose=verbose,
-                                epochs=epochs,
-                                callbacks=callbacks,
-                                validation_data=MySequence(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
-                                )
-        elif model_type == 'functional_API':
-            history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', memmap_dir, y_dim, output_num, output_axis),
-                                verbose=verbose,
-                                epochs=epochs,
-                                callbacks=callbacks,
-                                validation_data=MySequenceF(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
-                                )
+        
+        history = model.fit(x=MySequenceF(train_data_size, batch_size, 'train_data', memmap_dir, y_dim, output_num, output_axis),
+                            verbose=verbose,
+                            epochs=epochs,
+                            callbacks=callbacks,
+                            validation_data=MySequenceF(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
+                            )
             
         del train_data_size, val_data_size
     return model, history

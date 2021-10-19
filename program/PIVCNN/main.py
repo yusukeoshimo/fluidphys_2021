@@ -135,64 +135,27 @@ def objective(trial):
     # batch_size
     batch_size = 2**batch_size_index
 
-    if model_type == 'Sequential':
-        ''' Sequentialモデル '''
-        print(u'Sequentialモデルによる学習を行います． outputの数：%d' % output_num)
-        dense_list = [(Dense, mid_units[i], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))) for i in num_layer]
-        layers = (
-                    (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2), input_shape=(32,32,2))),
-#                      (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation, depthwise_initializer='glorot_normal', input_shape=(32,32,2))),
-                    (MaxPooling2D, dict(pool_size=(2, 2), strides=1, switch=Pooling_switch)),
-                    (Flatten),
-                    dense_list[0],
-                    (Dropout, dropout_rate),
-                    dense_list[1],
-                    (Dropout, dropout_rate),
-                    dense_list[2],
-                    (Dropout, dropout_rate),
-                    dense_list[3],
-                    (Dropout, dropout_rate),
-                    dense_list[4],
-                    (Dropout, dropout_rate),
-                    (Dense, output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
-                    )
-        model = my_sequential_model_builder(layers = layers, optimizer = OPTIMIZER, loss=['mae'], metrics='MAPE')
-        for ily, layer in enumerate(model.layers):
-            # input layer
-            if ily == 0:
-                input = layer.input
-                h = input
-            # is dropout layer ?
-            if 'dropout' in layer.name:
-                # change dropout layer
-                h = Dropout(layer.rate)(h, training=True)
-            else:
-                h = layer(h)
-        model.summary()
-
-    elif model_type == 'functional_API':
-        ''' functional APIモデル '''
-        print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
-        input1 = Input(shape = input_shape)
-        input2 = Input(shape = input_shape)
-        # 255で割るLambdaレイヤ
-        normalize_layer = Lambda(lambda x: x/255.0) # change scale
-        preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
-        c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
-        flatten_layer =  Flatten()
-        # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
-        # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
-        x1 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input1))))
-        # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
-        # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
-        x2 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input2))))
-        x = Concatenate()([x1, x2])
-        for i in range(num_layer):
-            x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
-        output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
-        model = tf.keras.Model(inputs = [input1, input2], outputs = output)
-        model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
-        model.summary()
+    print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
+    input1 = Input(shape = input_shape)
+    input2 = Input(shape = input_shape)
+    # 255で割るLambdaレイヤ
+    normalize_layer = Lambda(lambda x: x/255.0) # change scale
+    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
+    c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
+    flatten_layer =  Flatten()
+    # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
+    # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
+    x1 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input1))))
+    # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
+    # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
+    x2 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input2))))
+    x = Concatenate()([x1, x2])
+    for i in range(num_layer):
+        x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
+    output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
+    model = tf.keras.Model(inputs = [input1, input2], outputs = output)
+    model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
+    model.summary()
     
     #callbacksの設定
     #早期終了
@@ -218,7 +181,7 @@ def objective(trial):
     epochs = 100
     
     # モデルの学習
-    model, history = model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size)
+    model, history = model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size)
     
     #損失の比較，モデルの保存
     loss = history.history['val_loss'][-1]
@@ -242,11 +205,12 @@ if __name__ == '__main__':
     reset_optimize = False
     load_split_batch = False
     batch_determination = False
-    output_num = 2 # 出力数のデフォルト値
-    output_axis = 0 # プレースホルダー
     monte_carlo_dropout = False
     dropout_rate = None # ドロップアウト層の値
     default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
+    pre_training_MC = False
+    output_num = 2 # 出力数のデフォルト値
+    output_axis = 0 # プレースホルダー
     set_initial_parms = False
     n_jobs = 1 # シングルコアでの実行
     time_out = None
@@ -254,14 +218,16 @@ if __name__ == '__main__':
     i = 1
     while i < len(sys.argv):
         interactive_mode = False
+        batch_determination = True
         if sys.argv[i].lower().startswith('-h'):
             print(u'\n使い方:python %s -d dir_path' % os.path.basename(sys.argv[0]) + ' -d[irectory] dir_path ...\n' +
                    u'---- オプション ----\n' +
                    u'-d[irectory] dir_path         -> 訓練データがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可\n' +
                    u'-r[emove]                     -> 最適化の前回までのデータがある場合，それを消す．\n' +
                    u'-b[atch]                      -> 訓練データをバッチごとに読み込む．\n' +
-                   u'-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
                    u'-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
+                   u'-om[optuna monte]             -> モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．\n' +
+                   u'-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
                    u'-i[nitial]                    -> 最適化の初期値を固定して実行．\n' +
                    u'-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．\n' +
                    u'-tr[ial] n_trials             -> 最適化試行回数，n_trials回実行．\n' +
@@ -285,16 +251,18 @@ if __name__ == '__main__':
             reset_optimize = True
         elif sys.argv[i].lower().startswith('-b'):
             load_split_batch = True
-            batch_determination = True
+        elif sys.argv[i].lower().startswith('-m'):
+            monte_carlo_dropout = True
+            dropout_rate = default_dropout_rate # ドロップアウト層の値
+        elif sys.argv[i].lower().startswith('-om'):
+            pre_training_MC = True
+            dropout_rate = default_dropout_rate # ドロップアウト層の値
         elif sys.argv[i].lower().startswith('-o'):
             i += 1
             output_num = int(sys.argv[i])
             if output_num == 1:
                 i += 1
                 output_axis = sys.argv[i]
-        elif sys.argv[i].lower().startswith('-m'):
-            monte_carlo_dropout = True
-            dropout_rate = default_dropout_rate # ドロップアウト層の値
         elif sys.argv[i].lower().startswith('-i'):
             set_initial_parms = True
         elif sys.argv[i].lower().startswith('-n'):
@@ -319,7 +287,6 @@ if __name__ == '__main__':
     memmap_dir = 'memmap' # デフォルトでmemmapを保存するディレクトリ
     first_divide = 0.2 # 8:2，学習データ:テストデータ
     second_devide = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
-    model_type = 'functional_API' # Sequential / functional_API
     best_model_name = 'best_model.h5'
     exist_best_model = os.path.exists(best_model_name)# 解析ディレクトリに学習モデルがあるかの確認．
     input_shape = (32, 32) # 入力データの形状，32[pixel]×32[pixel]
@@ -333,7 +300,7 @@ if __name__ == '__main__':
             if exist_best_model:
                 interactive_mode = False
                 if input_str('Optunaによる最適化モデルの探索を行いますか？(y/n)>> ').lower().startswith('y'):
-                    exist_best_model = False
+                    pre_training_MC = True
                     interactive_mode = True
             while True:
                 try:
@@ -346,12 +313,6 @@ if __name__ == '__main__':
                     break
                 except:
                     pass
-
-    # モデル構造の確認
-    if interactive_mode:
-        check_model_type = input_str(u'モデル構造が%sになっています．このまま学習を開始しますか？（nで終了）>> ' % model_type)
-        if check_model_type.lower().strip() == 'n':
-            quit()
     
     # 出力数の決定
     if interactive_mode:
@@ -372,6 +333,7 @@ if __name__ == '__main__':
         data_directory = input_str('学習データのディレクトリを指定してください．>> ').strip()
     if any(['.npy' in i for i in os.listdir(data_directory)]): # 学習データのディレクトリの中身がmemmapの拡張子か判定．
         use_memmap = True
+        memmap_dir = data_directory
     
     # 学習データの読み込み条件の指定．
     if interactive_mode or not batch_determination:
@@ -454,26 +416,19 @@ if __name__ == '__main__':
                 data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir)
         
         elif use_memmap:
-            memmap_dir = data_directory
-            if not load_split_batch:
-                x_train_data = np.memmap(filename=os.path.join(memmap_dir, 'x_train_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
-                y_train_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_train_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
-                x_val_data = np.memmap(filename=os.path.join(memmap_dir, 'x_val_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
-                y_val_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_val_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
-            elif load_split_batch:
-                data_size = []
-                for i in ['train_data', 'val_data', 'test_data']:
-                    y_path = 'y_' + i + '.npy'
-                    y_memmap = np.memmap(filename=os.path.join(memmap_dir, y_path), dtype=np.float32, mode='r')
-                    data_size.append(y_memmap.reshape(-1, y_dim).shape[0]) # memmapファイルを利用して学習を行う．
-                    del y_memmap
+            data_size = []
+            for i in ['train_data', 'val_data', 'test_data']:
+                y_path = 'y_' + i + '.npy'
+                y_memmap = np.memmap(filename=os.path.join(memmap_dir, y_path), dtype=np.float32, mode='r')
+                data_size.append(y_memmap.reshape(-1, y_dim).shape[0]) # memmapファイルを利用して学習を行う．
+                del y_memmap
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
-        if monte_carlo_dropout and exist_best_model:
-            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
+        if monte_carlo_dropout and not pre_training_MC:
+            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
         else:
             study.optimize(objective, timeout=time_out, n_trials=n_trials)
-        if monte_carlo_dropout and not exist_best_model:
-            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
+        if monte_carlo_dropout and pre_training_MC:
+            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
     
     pruned_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.PRUNED]
     complete_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.COMPLETE]
