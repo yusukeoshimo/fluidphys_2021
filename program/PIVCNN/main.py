@@ -11,6 +11,7 @@
 #-i[nitial]                    -> 最適化の初期値を固定して実行．
 #-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．
 #-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．
+#-tr[ial] n_trials             -> 最適化試行回数，n_trials回実行．．
 #-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．
 #-c[onfirmation]               -> 最適なハイパーパラメータの確認．
 #-h[elp]                       -> ヘルプの表示．
@@ -27,6 +28,8 @@ import sys
 import tensorflow as tf
 import tensorflow.keras as keras
 import os
+import numpy as np
+from glob import glob
 import gc
 import optuna
 from sklearn.model_selection import train_test_split
@@ -36,12 +39,201 @@ from joblib import Parallel, delayed
 import zipfile
 import signal
 
-from my_callbacks import LossHistory, CopyWeights
-from read_data import read_image, get_input_output_from_file, read_ymemmap
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Concatenate
+from tensorflow.keras.layers import Lambda
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import DepthwiseConv2D
+from tensorflow.keras.layers import MaxPooling2D
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import LeakyReLU
+from tensorflow.keras import regularizers
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import callbacks
+from tensorflow.keras import backend
+
+from read_data import get_input_output_from_file, read_ymemmap
 from data_processing import MyDataset, MyGeneratorDataset
-from my_model import MySequence, MySequenceF, my_sequential_model_builder, model_train
+from my_model import model_train, calc_am
+from my_callbacks import LossHistory, CopyWeights
+from monte_carlo_dropout import restudy_by_monte_carlo_dropout
 from convenient import input_float, input_int, input_str
-from objective import objective
+
+def objective(trial):
+    # Clear clutter from previous Keras session graphs.
+    keras.backend.clear_session()
+
+    #最適化するパラメータの設定
+    
+    max_num_layer = 6 # Dense層の最大数
+    l2 = 0.0001 # L2正則化の係数
+    
+    if trial._trial_id-1 == 0 and set_initial_parms: # 初期値の指定
+        print(u'指定した初期値で学習を行います．')
+        #各畳込み層のフィルタ数
+        initial_num_filters = 191
+        num_filters = trial.suggest_int('num_filters', initial_num_filters, initial_num_filters)
+        
+        #Pooling層の有無，0がFalse，1がTrue
+        initial_Pooling_layer = 0
+        Pooling_layer = trial.suggest_int('Pooling_layer', initial_Pooling_layer, initial_Pooling_layer)
+        
+        #Dense層の数
+        num_layer = 5
+        
+        #Dense層のユニット数
+        initial_mid_units = [426, 362, 383, 304, 405]
+        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), initial_mid_units[i], initial_mid_units[i], 1)) for i in range(num_layer)]
+        
+        #活性化関数,leaky_relu
+        initial_alpha = 0
+        alpha = trial.suggest_uniform('alpha', initial_alpha, initial_alpha)
+        activation = LeakyReLU(alpha)
+        
+        #optimizer,adam
+        initial_learning_rate = 0.00065717
+        learning_rate = trial.suggest_float("learning_rate", initial_learning_rate, initial_learning_rate)
+        OPTIMIZER = Adam(learning_rate=learning_rate)
+        
+        #batch_size, 2^n, 2^10=1024
+        initial_batch_size = 10
+        batch_size_index = trial.suggest_int('batchsize', 9, 11)
+    else:
+        #各畳込み層のフィルタ数
+        num_filters = trial.suggest_int('num_filters', 1, 256)
+        
+        #Pooling層の有無，0がFalse，1がTrue
+        Pooling_layer = trial.suggest_int('Pooling_layer', 0, 1)
+        
+        #Dense層の数
+        num_layer = 5
+        
+        #Dense層のユニット数
+        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), 1, 500, 1)) for i in range(num_layer)]
+        
+        #活性化関数,leaky_relu
+        alpha = trial.suggest_uniform('alpha', 0, 5.0e-01)
+        activation = LeakyReLU(alpha)
+        
+        #optimizer,adam
+        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2)
+        OPTIMIZER = Adam(learning_rate=learning_rate)
+        
+        #batch_size, 2^n, 2^10=1024
+        batch_size_index = trial.suggest_int('batchsize', 9, 11)
+
+    # Pooling層を使うか使わないか
+    # if Pooling_layer == 0:
+        # Pooling_switch = 'off'
+    # elif Pooling_layer == 1:
+        # Pooling_switch = 'on'
+
+    # batch_size
+    batch_size = 2**batch_size_index
+
+    if model_type == 'Sequential':
+        ''' Sequentialモデル '''
+        print(u'Sequentialモデルによる学習を行います． outputの数：%d' % output_num)
+        dense_list = [(Dense, mid_units[i], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))) for i in num_layer]
+        layers = (
+                    (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2), input_shape=(32,32,2))),
+#                      (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation, depthwise_initializer='glorot_normal', input_shape=(32,32,2))),
+                    (MaxPooling2D, dict(pool_size=(2, 2), strides=1, switch=Pooling_switch)),
+                    (Flatten),
+                    dense_list[0],
+                    (Dropout, dropout_rate),
+                    dense_list[1],
+                    (Dropout, dropout_rate),
+                    dense_list[2],
+                    (Dropout, dropout_rate),
+                    dense_list[3],
+                    (Dropout, dropout_rate),
+                    dense_list[4],
+                    (Dropout, dropout_rate),
+                    (Dense, output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
+                    )
+        model = my_sequential_model_builder(layers = layers, optimizer = OPTIMIZER, loss=['mae'], metrics='MAPE')
+        for ily, layer in enumerate(model.layers):
+            # input layer
+            if ily == 0:
+                input = layer.input
+                h = input
+            # is dropout layer ?
+            if 'dropout' in layer.name:
+                # change dropout layer
+                h = Dropout(layer.rate)(h, training=True)
+            else:
+                h = layer(h)
+        model.summary()
+
+    elif model_type == 'functional_API':
+        ''' functional APIモデル '''
+        print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
+        input1 = Input(shape = input_shape)
+        input2 = Input(shape = input_shape)
+        # 255で割るLambdaレイヤ
+        normalize_layer = Lambda(lambda x: x/255.0) # change scale
+        preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
+        c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
+        flatten_layer =  Flatten()
+        # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
+        # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
+        x1 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input1))))
+        # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
+        # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
+        x2 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input2))))
+        x = Concatenate()([x1, x2])
+        for i in range(num_layer):
+            x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
+        output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
+        model = tf.keras.Model(inputs = [input1, input2], outputs = output)
+        model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
+        model.summary()
+    
+    #callbacksの設定
+    #早期終了
+    es = keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+    
+    #損失がnanになったら終了
+    nan = keras.callbacks.TerminateOnNaN()
+    
+    #epoch毎にグラフ描画
+    cb_figure = LossHistory(save_name = 'best_model_history', memmap_dir=memmap_dir, trial_num=trial._trial_id-1, output_num=output_num, am_list=am_list)
+    
+    #畳み込み層の重みの共有
+    copy_weights = CopyWeights(model)
+    
+    #モデルの保存
+    save_checkpoint = keras.callbacks.ModelCheckpoint('weights{epoch:02d}.hdf5', monitor='val_loss', verbose=0, save_best_only=False, save_weights_only=False, mode='auto', period=1, save_freq=1)
+    
+    #使用するコールバックスの指定
+    callbacks = [es, nan, cb_figure]
+
+    # モデルの学習の設定
+    verbose = 1
+    epochs = 100
+    
+    # モデルの学習
+    model, history = model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size)
+    
+    #損失の比較，モデルの保存
+    loss = history.history['val_loss'][-1]
+    global minimize_loss
+    if minimize_loss > loss:
+        minimize_loss = loss
+        model.save(best_model_name)
+
+    #メモリの開放
+    keras.backend.clear_session()
+    del model, history, OPTIMIZER
+    gc.collect()
+    
+    #検証用データに対する損失が最小となるハイパーパラメータを求める
+    return loss
 
 if __name__ == '__main__':
     interactive_mode = True
@@ -49,6 +241,7 @@ if __name__ == '__main__':
     use_memmap = False
     reset_optimize = False
     load_split_batch = False
+    batch_determination = False
     output_num = 2 # 出力数のデフォルト値
     output_axis = 0 # プレースホルダー
     monte_carlo_dropout = False
@@ -71,6 +264,7 @@ if __name__ == '__main__':
                    u'-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
                    u'-i[nitial]                    -> 最適化の初期値を固定して実行．\n' +
                    u'-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．\n' +
+                   u'-tr[ial] n_trials             -> 最適化試行回数，n_trials回実行．\n' +
                    u'-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．\n' +
                    u'-c[onfirmation]               -> 最適なハイパーパラメータの確認．\n' +
                    u'-h[elp]                       -> ヘルプの表示．\n' +
@@ -91,6 +285,7 @@ if __name__ == '__main__':
             reset_optimize = True
         elif sys.argv[i].lower().startswith('-b'):
             load_split_batch = True
+            batch_determination = True
         elif sys.argv[i].lower().startswith('-o'):
             i += 1
             output_num = int(sys.argv[i])
@@ -105,6 +300,9 @@ if __name__ == '__main__':
         elif sys.argv[i].lower().startswith('-n'):
             i += 1
             n_jobs = max(int(sys.argv[i]),1)
+        elif sys.argv[i].lower().startswith('-tr'):
+            i += 1
+            n_trials = int(sys.argv[i])
         elif sys.argv[i].lower().startswith('-t'):
             i += 1
             time_out = float(sys.argv[i])*60*60 # [s]時間を秒に変換
@@ -130,9 +328,13 @@ if __name__ == '__main__':
 
     # 予測時にもドロップアウト層を有効にした学習モデルで再学習を行う．
     if interactive_mode:
-        if input_str('モンテカルロドロップアウトの学習モデルにしますか．（予測時にもドロップアウト層を使うような学習モデル．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
+        if input_str('モンテカルロドロップアウトの学習モデルにしますか．（予測時にもドロップアウト層を使うような学習モデル．y/n）>> ').lower().startswith('y'):
             monte_carlo_dropout = True
-            interactive_mode = False
+            if exist_best_model:
+                interactive_mode = False
+                if input_str('Optunaによる最適化モデルの探索を行いますか？(y/n)>> ').lower().startswith('y'):
+                    exist_best_model = False
+                    interactive_mode = True
             while True:
                 try:
                     dropout_rate = (raw_input if sys.version_info.major <= 2 else input)('ドロップアウト層の値を入力してください．(0~1．デフォルトは0.5) >> ')
@@ -172,17 +374,9 @@ if __name__ == '__main__':
         use_memmap = True
     
     # 学習データの読み込み条件の指定．
-    if interactive_mode:
+    if interactive_mode or not batch_determination:
         if input_str('学習データをバッチごとに読み込みますか．（データが多いときはy，y/n）>> ').lower().strip().startswith('y'):
             load_split_batch = True
-    
-    # 前回までの最適化データの削除
-    if interactive_mode:
-        if input_str('前回までの最適化データがある場合，それを削除しますか．（y/n）>> ').lower().startswith('y'):
-            reset_optimize = True
-    if reset_optimize and not check_param:
-        if os.path.exists(study_name_path):
-            os.remove(study_name_path)
     
     # Optunaの設定，並列処理数の指定
     if interactive_mode:
@@ -194,6 +388,19 @@ if __name__ == '__main__':
             time_out=float(time_out)*60*60 # hour -> secondに変換
         except:
             time_out=None
+        n_trials = input_str('Optunaによる最適化の試行回数を指定してください．（指定しなければずっと計算を行う．）>> ')
+        try:
+            n_trials=int(n_trials) # str型をint型に変換
+        except:
+            n_trials=None
+    
+    # 前回までの最適化データの削除
+    if interactive_mode:
+        if input_str('前回までの最適化データがある場合，それを削除しますか．（y/n）>> ').lower().startswith('y'):
+            reset_optimize = True
+    if reset_optimize and not check_param:
+        if os.path.exists(study_name_path):
+            os.remove(study_name_path)
 
     # 最適化関数のインスタンス化
     study = optuna.create_study(storage='sqlite:///optimize-CNN.db',
@@ -216,7 +423,7 @@ if __name__ == '__main__':
             
             # データを使いやすい形に整理
             if not load_split_batch:
-                dataset = MyDataset(y_dim)
+                dataset = MyDataset(y_dim, global_dict=globals().items())
                 input_data = dataset.im2array(data_directory, n_jobs=n_jobs) # 入力データの画像 -> 配列に変換
                 
                  # 出力データの読み込み
@@ -229,28 +436,17 @@ if __name__ == '__main__':
                 x_learn, x_test_data, y_learn, y_test_data = train_test_split(input_data, output_data, test_size=first_divide)
                 # 学習用データを訓練データと検証データに分割
                 x_train_data, x_val_data, y_train_data, y_val_data = train_test_split(x_learn, y_learn, test_size=second_devide)
-
-                # 入力データの正規化，最大輝度数で割っている．
-                max_luminance = 255 # 最大輝度数
-                x_train_data = x_train_data/max_luminance
-                x_val_data = x_val_data/max_luminance
-                x_test_data = x_test_data/max_luminance
                 
                 dataset.save_memmap((x_train_data, x_test_data, x_val_data, y_val_data, y_train_data, y_test_data), memmap_dir) # memmapファイルを保存
-                
+                data_size = [y_train_data[0], y_val_data[0], y_test_data[0]]
                 # メモリの開放
                 del input_data, output_data, x_test_data, y_test_data
                 gc.collect()
-                
-                x_train_data = np.memmap(filename=os.path.join(memmap_dir, 'x_train_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
-                y_train_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_train_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
-                x_val_data = np.memmap(filename=os.path.join(memmap_dir, 'x_val_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
-                y_val_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_val_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
 
             elif load_split_batch:
                 print('訓練データをバッチごとに読み込みます．')
                 # 訓練データをバッチごとに読み込むときのデータセット
-                dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs)
+                dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs, global_dict=globals().items())
                 data_set = dataset.get_paths(data_directory)
                 print(u'総データ数： ' + str(len(data_set)))
                 learning_data, test_data = train_test_split(data_set, test_size=first_divide) # データセットを学習用データとテストデータに分割
@@ -273,11 +469,11 @@ if __name__ == '__main__':
                     del y_memmap
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
         if monte_carlo_dropout and exist_best_model:
-            restudy()
+            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
         else:
-            study.optimize(objective(), timeout=time_out)
+            study.optimize(objective, timeout=time_out, n_trials=n_trials)
         if monte_carlo_dropout and not exist_best_model:
-            restudy()
+            restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
     
     pruned_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.PRUNED]
     complete_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.COMPLETE]

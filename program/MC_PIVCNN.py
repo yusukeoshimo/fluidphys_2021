@@ -35,11 +35,14 @@ import math
 from glob import glob
 from natsort import natsorted
 from sklearn.model_selection import train_test_split
+from scipy.special import comb
+from itertools import permutations
 from tqdm import tqdm
 from adjustText import adjust_text
 import multiprocessing
 from joblib import Parallel, delayed
 import zipfile
+import signal
 import matplotlib
 
 #バックエンドを指定
@@ -89,17 +92,15 @@ def mode_detect():
 
 #動的グラフを描画するためのクラス，ネット参照
 class LossHistory(callbacks.Callback):
-    def __init__(self, save_name=None, trial_num=None, loss='loss', metrics=None, minimize_loss=None, am_list=None, output_num=None, memmap_dir=None):
+    def __init__(self, save_name=None, trial=0, minimize_loss=1.0e05):
         # コンストラクタに保持用の配列を宣言しておく
         self.save_name = save_name
-        self.trial_num = trial_num
-        self.loss = loss
-        self.metrics = metrics
+        self.trial = trial
         self.minimize_loss = minimize_loss
-        self.memmap_dir = memmap_dir
+        self.loss = 'loss'
         if output_num == 2:
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|)/$' + str(output_num)
-        else:
+        elif output_num == 3:
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|+|z_k|)/$' + str(output_num)
         if hasattr(am_list, '__iter__'):
             self.train_am = am_list[0]
@@ -128,7 +129,7 @@ class LossHistory(callbacks.Callback):
             array_val_metrics = np.array(self.val_metrics).reshape(-1, 1)
             loss_history = np.hstack((array_epoch, array_train_loss, array_val_loss, array_train_metrics, array_val_metrics))
             with open('loss_history.txt', 'w') as f:
-                f.write(self.memmap_dir + '\n')
+                f.write(memmap_dir + '\n')
                 f.write('# epochs                 train_loss               val_loss                 train_metrics            val_metrics\n')
                 np.savetxt(f, loss_history)
             
@@ -149,9 +150,9 @@ class LossHistory(callbacks.Callback):
             plt.rcParams['legend.fontsize'] = 12.0
 
             # グラフ描画部
-            plt.title('learning curve trial: '+str(self.trial_num))
+            plt.title('learning curve trial: '+str(self.trial))
             plt.xlabel('epoch')
-            plt.ylabel('loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|)/2$')
+            plt.ylabel(self.ylabel)
             plt.plot(self.train_metrics, label=self.loss)
             plt.plot(self.val_metrics, label='val_'+self.loss)
             
@@ -380,7 +381,7 @@ class MyGeneratorDataset:
         # xのデータをmemmapのファイルへ書き込む。
         a = read_image(x[0])
         b = read_image(x[1])
-        X = np.stack([a,b],-1)
+        X = np.stack([a,b],-1)/255
         
         X_memmap = np.memmap(
                 filename=os.path.join(memmap_dir, self.X_MEMMAP_PATH), dtype=np.float32, mode='r+', shape=(self.data_size, 32, 32, 2))
@@ -578,7 +579,7 @@ class Objective:
         max_num_layer = 6 # Dense層の最大数
         l2 = 0.0001 # L2正則化の係数
         
-        if trial._trial_id-1 == 0 and set_initial_parms: # 初期値の指定
+        if trial._trial_id-1 == 0 and self.set_initial_parms: # 初期値の指定
             print(u'指定した初期値で学習を行います．')
             #各畳込み層のフィルタ数
             initial_num_filters = 191
@@ -641,9 +642,9 @@ class Objective:
         # batch_size
         batch_size = 2**batch_size_index
 
-        if model_type == 'Sequential':
+        if self.model_type == 'Sequential':
             ''' Sequentialモデル '''
-            print(u'Sequentialモデルによる学習を行います． outputの数：%d' % output_num)
+            print(u'Sequentialモデルによる学習を行います． outputの数：%d' % self.output_num)
             dense_list = [(Dense, mid_units[i], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))) for i in num_layer]
             layers = (
                       (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2), input_shape=(32,32,2))),
@@ -651,18 +652,18 @@ class Objective:
                       (MaxPooling2D, dict(pool_size=(2, 2), strides=1, switch=Pooling_switch)),
                       (Flatten),
                       dense_list[0],
-                      (Dropout, dropout_rate),
+                      (Dropout, self.dropout_rate),
                       dense_list[1],
-                      (Dropout, dropout_rate),
+                      (Dropout, self.dropout_rate),
                       dense_list[2],
-                      (Dropout, dropout_rate),
+                      (Dropout, self.dropout_rate),
                       dense_list[3],
-                      (Dropout, dropout_rate),
+                      (Dropout, self.dropout_rate),
                       dense_list[4],
-                      (Dropout, dropout_rate),
-                      (Dense, output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
+                      (Dropout, self.dropout_rate),
+                      (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))),
                       )
-            with strategy.scope():
+            with self.strategy.scope():
                 model = my_sequential_model_builder(layers = layers, optimizer = OPTIMIZER, loss=['mae'], metrics='MAPE')
                 for ily, layer in enumerate(model.layers):
                     # input layer
@@ -677,27 +678,25 @@ class Objective:
                         h = layer(h)
             model.summary()
 
-        elif model_type == 'functional_API':
+        elif self.model_type == 'functional_API':
             ''' functional APIモデル '''
-            print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
-            with strategy.scope():
-                input1 = Input(shape = input_shape)
-                input2 = Input(shape = input_shape)
-                # 255で割るLambdaレイヤ
-                normalize_layer = Lambda(lambda x: x/255.0) # change scale
+            print(u'functional APIモデルによる学習を行います． outputの数：%d' % self.output_num)
+            with self.strategy.scope():
+                input1 = Input(shape = self.input_shape)
+                input2 = Input(shape = self.input_shape)
                 preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
                 c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
                 flatten_layer =  Flatten()
                 # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
                 # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
-                x1 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input1))))
+                x1 = flatten_layer(c2d(preprocessing_layer(input1)))
                 # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
                 # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
-                x2 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input2))))
+                x2 = flatten_layer(c2d(preprocessing_layer(input2)))
                 x = Concatenate()([x1, x2])
                 for i in range(num_layer):
                     x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
-                output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
+                output = Dense(units = self.output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
                 model = tf.keras.Model(inputs = [input1, input2], outputs = output)
                 model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
             model.summary()
@@ -710,7 +709,7 @@ class Objective:
         nan = keras.callbacks.TerminateOnNaN()
         
         #epoch毎にグラフ描画
-        cb_figure = LossHistory(save_name = 'best_model_history', trial_num=trial._trial_id-1, metrics='my_mape', minimize_loss=minimize_loss, am_list=am_list, output_num=output_num, memmap_dir=memmap_dir)
+        cb_figure = LossHistory(save_name = 'best_model_history', trial_num=trial._trial_id-1, minimize_loss=self.minimize_loss)
         
         #畳み込み層の重みの共有
         copy_weights = CopyWeights(model)
@@ -726,13 +725,13 @@ class Objective:
         epochs = 100
         
         # モデルの学習
-        model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type)
+        model, history = model_train(model, verbose, epochs, batch_size, callbacks, self.load_split_batch, self.model_type)
         
         #損失の比較，モデルの保存
         loss = history.history['val_loss'][-1]
-        if minimize_loss > loss:
-            minimize_loss = loss
-            model.save(best_model_name)
+        if self.minimize_loss > loss:
+            self.minimize_loss = loss
+            model.save(self.best_model_name)
 
         #メモリの開放
         keras.backend.clear_session()
@@ -793,9 +792,9 @@ def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch,
                                 )
             
         del train_data_size, val_data_size
+    return model, history
 
-
-def restudy_by_monte_carlo_dropout():
+def restudy():
     model = tf.keras.models.load_model(best_model_name, custom_objects={'LeakyReLU': LeakyReLU})
 
     for index, layer in enumerate(model.layers):
@@ -829,14 +828,14 @@ def restudy_by_monte_carlo_dropout():
             batch_size = 2 ** value
     # モデルの学習の設定
     verbose = 1
-    epochs = 300
+    epochs = 500
 
     #epoch毎にグラフ描画
-    cb_figure = LossHistory(save_name = 'MC_model_history', am_list=am_list)
+    cb_figure = LossHistory(save_name = 'MC_model_history')
     callbacks = [cb_figure]
 
-    model_train(Model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type)
-    model.save('MC_model.h5')
+    Model, history = model_train(Model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type)
+    Model.save('MC_model.h5')
 
 def input_str(message):
     return (raw_input if sys.version_info.major <= 2 else input)(message)
@@ -1088,12 +1087,12 @@ if __name__ == '__main__':
                     del y_memmap
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
         if monte_carlo_dropout and exist_best_model:
-            restudy_by_monte_carlo_dropout()
+            restudy()
         else:
             objective = Objective(strategy, input_shape, y_dim, output_num, output_axis, memmap_dir, minimize_loss, load_split_batch, am_list, dropout_rate, set_initial_parms, model_type, best_model_name)
             study.optimize(objective, timeout=time_out)
         if monte_carlo_dropout and not exist_best_model:
-            restudy_by_monte_carlo_dropout()
+            restudy()
 
     
     pruned_trials = [t for t in study.trials if t.state == optuna.structs.TrialState.PRUNED]

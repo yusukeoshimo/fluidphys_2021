@@ -7,6 +7,7 @@ import tensorflow as tf
 import numpy as np
 import os
 import math
+import gc
 
 from tensorflow.keras.layers import MaxPooling2D
 from tensorflow.keras.layers import Dropout
@@ -126,34 +127,34 @@ def my_sequential_model_builder(layers = None, optimizer = 'rmsprop', loss = Non
     model.compile(optimizer = optimizer, loss = loss, metrics = metrics)
     return model
 
-def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type):
+def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, model_type, memmap_dir, y_dim, output_num, output_axis, data_size):
     if not load_split_batch:
         #訓練データを外から中に入れる
-        x_train_copy = np.copy(x_train_data)
-        y_train_copy = np.copy(y_train_data)
-        x_val_copy = np.copy(x_val_data)
-        y_val_copy = np.copy(y_val_data)
+        x_train_data = np.memmap(filename=os.path.join(memmap_dir, 'x_train_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
+        y_train_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_train_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
+        x_val_data = np.memmap(filename=os.path.join(memmap_dir, 'x_val_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
+        y_val_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_val_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
         
         if model_type == 'Sequential':
-            history = model.fit(x_train_copy,
-                                y_train_copy,
+            history = model.fit(x_train_data,
+                                y_train_data,
                                 verbose=verbose,
                                 epochs=epochs,
                                 batch_size=batch_size,
-                                validation_data=(x_val_copy, y_val_copy),
+                                validation_data=(x_val_data, y_val_data),
                                 callbacks=callbacks,
                                 )
         elif model_type == 'functional_API':
-            history = model.fit([x_train_copy[:,:,:,0],x_train_copy[:,:,:,1]],
-                                y_train_copy,
+            history = model.fit([x_train_data[:,:,:,0],x_train_data[:,:,:,1]],
+                                y_train_data,
                                 verbose=verbose,
                                 epochs=epochs,
                                 batch_size=batch_size,
-                                validation_data=([x_val_copy[:,:,:,0], x_val_copy[:,:,:,1]], y_val_copy),
+                                validation_data=([x_val_data[:,:,:,0], x_val_data[:,:,:,1]], y_val_data),
                                 callbacks=callbacks,
                                 )
         
-        del x_train_copy, y_train_copy
+        del x_train_data, y_train_data
     else:
         #データ数を外から中に入れる
         train_data_size = data_size[0]
@@ -176,3 +177,22 @@ def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch,
                                 )
             
         del train_data_size, val_data_size
+    return model, history
+
+def calc_am(memmap_dir, y_dim, output_num, output_axis):
+    memmap_list = os.listdir(memmap_dir)
+    for i in memmap_list:
+        # 1/N Σ(|x|+|y|+|z|)/3
+        if 'y_' in i:
+            if 'train' in i:
+                y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
+                train_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+            elif 'val' in i:
+                y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
+                val_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+            elif 'test' in i:
+                y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
+                test_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+    del y_memmap
+    gc.collect()
+    return train_am, val_am, test_am

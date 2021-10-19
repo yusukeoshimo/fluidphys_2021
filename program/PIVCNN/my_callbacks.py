@@ -15,17 +15,16 @@ from tensorflow.keras import callbacks
 
 #動的グラフを描画するためのクラス，ネット参照
 class LossHistory(callbacks.Callback):
-    def __init__(self, save_name=None, trial_num=None, loss='loss', metrics=None, minimize_loss=None, am_list=None, output_num=None, memmap_dir=None):
+    def __init__(self, save_name=None, memmap_dir=None, trial_num=0, minimize_loss=1e05, output_num=None, am_list=None):
         # コンストラクタに保持用の配列を宣言しておく
         self.save_name = save_name
-        self.trial_num = trial_num
-        self.loss = loss
-        self.metrics = metrics
-        self.minimize_loss = minimize_loss
         self.memmap_dir = memmap_dir
+        self.trial_num = trial_num
+        self.minimize_loss = minimize_loss
+        self.loss = 'loss'
         if output_num == 2:
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|)/$' + str(output_num)
-        else:
+        elif output_num == 3:
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|+|z_k|)/$' + str(output_num)
         if hasattr(am_list, '__iter__'):
             self.train_am = am_list[0]
@@ -77,7 +76,7 @@ class LossHistory(callbacks.Callback):
             # グラフ描画部
             plt.title('learning curve trial: '+str(self.trial_num))
             plt.xlabel('epoch')
-            plt.ylabel('loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|)/2$')
+            plt.ylabel(self.ylabel)
             plt.plot(self.train_metrics, label=self.loss)
             plt.plot(self.val_metrics, label='val_'+self.loss)
             

@@ -13,8 +13,9 @@ from joblib import Parallel, delayed
 from read_data import read_image, get_input_output_from_file
 
 class MyDataset:
-    def __init__(self, y_dim=None):
+    def __init__(self, y_dim=None, global_dict=None):
         self.y_dim = y_dim
+        self.global_dict = global_dict
 
     def im2array(self, dir_name, n_jobs=1):
         # example
@@ -70,7 +71,7 @@ class MyDataset:
         if not isinstance(data, tuple):
             data = (data,)
         for i in tqdm(data, desc='memmap作成 全体の進捗'):
-            for key, value in globals().items():
+            for key, value in self.global_dict:
                 if id(i) == id(value):
                     file_name = key
             # memmap用のファイルのパス。
@@ -85,9 +86,10 @@ class MyDataset:
             del memmap
 
 class MyGeneratorDataset:
-    def __init__(self, y_dim=None, n_jobs=1):
+    def __init__(self, y_dim=None, n_jobs=1, global_dict=None):
         self.y_dim = y_dim
         self.n_jobs = n_jobs
+        self.global_dict = global_dict
 
     def get_paths(self, dir_name):
         self.dir_name = dir_name
@@ -122,7 +124,7 @@ class MyGeneratorDataset:
         size_list = []
         for i in tqdm(data, desc='memmap作成 全体の進捗'):
             size_list.append(len(i))
-            for key, value in globals().items():
+            for key, value in self.global_dict:
                 if id(i) == id(value):
                     file_name = key
             # memmap用のファイルのパス。
