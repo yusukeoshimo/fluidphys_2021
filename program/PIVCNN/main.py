@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-19 18:26:23
+# 2021-10-20 15:08:55
 # main.py
 
 #---- オプション ----
@@ -9,7 +9,10 @@
 #-b[atch]                      -> 訓練データをバッチごとに読み込む．
 #-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．
 #-i[nitial]                    -> 最適化の初期値を固定して実行．
-#-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．
+#-m[onte] ( --p[releraning]) ( --r[ate] dropout_rate)
+#                              -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．
+#                              -> --p[releraning] : モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．
+#                              -> --r[ate] dropout_rate : ドロップアウト率の変更（デフォルトで0.5）．
 #-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．
 #-tr[ial] n_trials             -> 最適化試行回数，n_trials回実行．．
 #-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．
@@ -17,12 +20,12 @@
 #-h[elp]                       -> ヘルプの表示．
 
 #デフォルトの設定
-#訓練データの読み込み設定  : すべて読み込む
-#前回までの最適化データ    : 前回の続きから開始する
-#並列計算における分割数   : シングルコアで実行
-#データの保存場所         : 作業フォルダ
-#出力数                 : 2
-#ドロップアウト層の値     : 0.5
+#訓練データの読み込み設定          : すべて読み込む
+#前回までの最適化データ            : 前回の続きから開始する
+#並列計算における分割数           : シングルコアで実行
+#データの保存場所                 : 作業フォルダ
+#出力数                          : 2
+#ドロップアウト層のデフォルト値    : 0.5
 
 import sys
 import tensorflow as tf
@@ -225,8 +228,10 @@ if __name__ == '__main__':
                    u'-d[irectory] dir_path         -> 訓練データがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可\n' +
                    u'-r[emove]                     -> 最適化の前回までのデータがある場合，それを消す．\n' +
                    u'-b[atch]                      -> 訓練データをバッチごとに読み込む．\n' +
-                   u'-m[onte]                      -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
-                   u'-om[optuna monte]             -> モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．\n' +
+                   u'-m[onte] ( --p[releraning]) ( --r[ate] dropout_rate) \n' +
+                   u'                              -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
+                   u'                              -> --p[releraning] : モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．\n' +
+                   u'                              -> --r[ate] dropout_rate : ドロップアウト率の変更（デフォルトで0.5）．\n' +
                    u'-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
                    u'-i[nitial]                    -> 最適化の初期値を固定して実行．\n' +
                    u'-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．\n' +
@@ -254,9 +259,18 @@ if __name__ == '__main__':
         elif sys.argv[i].lower().startswith('-m'):
             monte_carlo_dropout = True
             dropout_rate = default_dropout_rate # ドロップアウト層の値
-        elif sys.argv[i].lower().startswith('-om'):
-            pre_training_MC = True
-            dropout_rate = default_dropout_rate # ドロップアウト層の値
+            temporary_storage = i # 一時保存
+            i += 1
+            while (i - temporary_storage) <= [j.startswith('--') for j in sys.argv].count(True):
+                #          [1, 2, ]       <= コマンドライン引数に '--' から始まる要素の数
+                if sys.argv[i].lower().startswith('--p'):
+                    pre_training_MC = True
+                    i += 1
+                elif sys.argv[i].lower().startswith('--r'):
+                    i += 1
+                    dropout_rate = sys.argv[i]
+                i += 1
+            i = temporary_storage
         elif sys.argv[i].lower().startswith('-o'):
             i += 1
             output_num = int(sys.argv[i])
