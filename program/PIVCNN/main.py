@@ -260,8 +260,10 @@ if __name__ == '__main__':
             monte_carlo_dropout = True
             dropout_rate = default_dropout_rate # ドロップアウト層の値
             temporary_storage = i # 一時保存
+            sub_option_num = [j.startswith('--') for j in sys.argv].count(True)
+            # コマンドライン引数に '--' から始まる要素の数
             i += 1
-            while (i - temporary_storage) <= [j.startswith('--') for j in sys.argv].count(True):
+            while (i - temporary_storage) <= sub_option_num:
                 #          [1, 2, ]       <= コマンドライン引数に '--' から始まる要素の数
                 if sys.argv[i].lower().startswith('--p'):
                     pre_training_MC = True
@@ -270,7 +272,7 @@ if __name__ == '__main__':
                     i += 1
                     dropout_rate = sys.argv[i]
                 i += 1
-            i = temporary_storage
+            i = temporary_storage + sub_option_num
         elif sys.argv[i].lower().startswith('-o'):
             i += 1
             output_num = int(sys.argv[i])
