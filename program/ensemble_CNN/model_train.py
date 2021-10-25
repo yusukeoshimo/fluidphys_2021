@@ -1,7 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-22 13:01:43
+# 2021-10-25 20:32:46
 # model_train.py
+
+import tensorflow as tf
+import numpy as np
+import os
+import math
+import gc
+
+from tensorflow.keras.utils import Sequence
+
+from read_data import read_ymemmap
 
 class MySequenceF(Sequence): # generator
     def __init__(self, data_size, batch_size, file_name=None, memmap_dir=None, y_dim=None, output_num=None, output_axis=None):
@@ -75,6 +85,7 @@ def model_train(model,
     del train_data_size, val_data_size
     return model, history
 
+# 出力の絶対値平均を計算
 def calc_am(memmap_dir, y_dim, output_num, output_axis):
     memmap_list = os.listdir(memmap_dir)
     for i in memmap_list:

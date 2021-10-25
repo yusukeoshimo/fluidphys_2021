@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-22 13:08:49
+# 2021-10-25 20:36:45
 # particle_image_with_fluid_func.py
 
 import shutil
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import random
@@ -13,7 +14,11 @@ import cv2
 import multiprocessing
 from multiprocessing import Pool
 from tqdm import tqdm
-import sys
+from sklearn.model_selection import train_test_split
+from glob import glob
+from natsort import natsorted
+
+from convenient import remove_dir
 
 class MkImage():
     def __init__(self,
@@ -225,8 +230,72 @@ class Data2Memmap:
             del a
             
         return size_list
+    
+    def append_memmap(self, memmap_dir, d, j):
+        x = d[0]
+        y = d[1]
+        # xのデータをmemmapのファイルへ書き込む。
+        a = read_image(x[0])
+        b = read_image(x[1])
+        X = np.stack([a,b],-1)
+        
+        X_memmap = np.memmap(
+                filename=os.path.join(memmap_dir, self.X_MEMMAP_PATH), dtype=np.float32, mode='r+', shape=(self.data_size, 32, 32, 2))
+        y_memmap = np.memmap(
+                filename=os.path.join(memmap_dir, self.Y_MEMMAP_PATH), dtype=np.float32, mode='r+', shape=(self.data_size, self.y_dim))
+        X_memmap[j] = X
+        # X_memmap.shape = (データ数，行数, 列数, 深さ)
+        # example X
+        # 画像1の形状:array_shape = (行数, 列数)
+        #            <--------- 列 ---------->
+        #        ^   [[ 0  1  0 ...  0  0  0]
+        #        |    [ 6 10  4 ...  0  0  0]
+        #        |    [30 46 20 ...  0  0  1]
+        #        行    ...
+        #        |    [ 0  0  0 ...  0  0  0]
+        #        |    [ 0  0  0 ...  0  0  0]
+        #        v    [ 0  0  0 ...  0  0  0]]
+        # 画像2の形状:[[ 0  0  0 ... 33  8  1]
+        #             [ 0  0  0 ... 55 13  1]
+        #             [ 0  0  0 ... 28  7  0]
+        #             ...
+        #             [ 0  0  0 ...  0  0  0]
+        #             [ 0  0  0 ...  0  0  0]
+        #             [ 0  0  0 ...  0  0  0]]
+        # 配列の結合:array_shape = (行数, 列数, 深さ)
+        #           [[[ 0  0]
+        #             [ 1  0]
+        #             [ 0  0]
+        #             ...
+        #             [ 0 33]
+        #             [ 0  8]
+        #             [ 0  1]]
+        #            [[ 6  0]
+        #             [10  0]
+        #             [ 4  0]
+        #             ...
+        #             [ 0 55]
+        #             [ 0 13]
+        #             [ 0  1]]
+        #             ...   ]]]
+        
+        # yのデータをmemmapのファイルへ書き込む。
+        y_memmap[j] = np.array(y)
+        # Y:[v_xk, v_yk]
+        # example y_memmap
+        # y_memmap.shape = (データ数，速度の次元数)
+        #            <--------- 速度の次元数 --------->
+        #        ^   [[     v_x0,     v_y0,     v_z0]
+        #        |    [     v_x1,     v_y1,     v_z1]
+        #        |    [     v_x2,     v_y2,     v_z2]
+        #     データ数  ...
+        #        |    [ v_x(k-2), v_y(k-2), v_z(k-2)]
+        #        |    [ v_x(k-1), v_y(k-1), v_z(k-1)]
+        #        v    [     v_xk,     v_yk,     v_zk]]
 
-def mkdata(data_num, memmap_dir):
+        del X_memmap, y_memmap
+
+def mkdata(data_num, memmap_dir, split_rate=None):
     # MkImageクラスのパラメータ*********************************************************************************************************
     logical_processor = multiprocessing.cpu_count()
     hope_dataset_num = data_num
@@ -243,6 +312,10 @@ def mkdata(data_num, memmap_dir):
     graph_bool = False # 速度場のグラフを描写するか否か
     # *********************************************************************************************************************************
 
+    # 前回のデータがある場合，削除
+    remove_dir(data_directory)
+    remove_dir(memmap_dir)
+
     # データセットを並列計算によって作成
     mkimage = MkImage(logical_processor=logical_processor,
                       hope_dataset_num=hope_dataset_num,
@@ -257,7 +330,6 @@ def mkdata(data_num, memmap_dir):
                       d_p_min=d_p_min,
                       d_p_max=d_p_max,
                       graph_bool=graph_bool)
-    mkimage.remove_dir()
     mkimage.mk_dir()
     processor = [processor for processor in range(logical_processor)]
     p = Pool(logical_processor)
@@ -268,10 +340,32 @@ def mkdata(data_num, memmap_dir):
 
     dataset = Data2Memmap(y_dim=y_dim, n_jobs=n_jobs)
     data_set = dataset.get_paths(data_directory) # 画像のパスをリストで返す
-    # 全データを訓練データと検証データに分割
-    train_data, val_data = train_test_split(learning_data, test_size=split_everything_to_train_validation)
+    if split_rate is not None:
+        if hasattr(split_rate,'__iter__')
+            if len(split_rate) == 1:
+                # 全データを訓練データと検証データに分割
+                train_data, val_data = train_test_split(learning_data, test_size=split_rate[0])
+                data_list = (train_data, val_data)
+            elif len(split_rate) == 2:
+                # データセットを学習用データとテストデータに分割
+                learning_data, test_data = train_test_split(data_set, test_size=split_rate[0])
+                # 学習用データを訓練データと検証データに分割
+                train_data, val_data = train_test_split(learning_data, test_size=split_rate[1])
+                data_list = (train_data, val_data, test_data)
+            else:
+                print('len(split_rate) != 1, 2 \n' +
+                      '学習／テストデータの分割ができませんでした．')
+                sys.exit(1) # 異常終了
+        else:
+            # 全データを訓練データと検証データに分割
+            train_data, val_data = train_test_split(learning_data, test_size=split_rate)
+            data_list = (train_data, val_data)
+    else:
+        test_data = data_set
+        data_list = (test_data,)
     # memmapファイルの作成
-    data_size = dataset.generate_memmap((train_data, val_data), memmap_dir, locals().items())
+    data_size = dataset.generate_memmap(data_list, memmap_dir, locals().items())
+    # data_size = [len(data[0]), len(data[1]), ...]
 
     return data_size
 
