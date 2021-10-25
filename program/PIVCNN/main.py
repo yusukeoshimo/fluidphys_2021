@@ -299,8 +299,8 @@ if __name__ == '__main__':
     study_name_path = study_name + '.db'
     y_dim = 3 # 変位の次元数
     memmap_dir = 'memmap' # デフォルトでmemmapを保存するディレクトリ
-    first_divide = 0.2 # 8:2，学習データ:テストデータ
-    second_devide = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
+    split_everything_to_learn_test = 0.2 # 8:2，学習データ:テストデータ
+    split_leran_to_train_validation = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
     best_model_name = 'best_model.h5'
     exist_best_model = os.path.exists(best_model_name)# 解析ディレクトリに学習モデルがあるかの確認．
     input_shape = (32, 32) # 入力データの形状，32[pixel]×32[pixel]
@@ -399,7 +399,7 @@ if __name__ == '__main__':
             
             # データを使いやすい形に整理
             if not load_split_batch:
-                dataset = MyDataset(y_dim, global_dict=globals().items())
+                dataset = MyDataset(y_dim)
                 input_data = dataset.im2array(data_directory, n_jobs=n_jobs) # 入力データの画像 -> 配列に変換
                 
                  # 出力データの読み込み
@@ -409,11 +409,11 @@ if __name__ == '__main__':
                 print(u'総データ数： ' + str(output_data.shape[0]))
                 
                 # 学習用データとテストデータに分割
-                x_learn, x_test_data, y_learn, y_test_data = train_test_split(input_data, output_data, test_size=first_divide)
+                x_learn, x_test_data, y_learn, y_test_data = train_test_split(input_data, output_data, test_size=split_everything_to_learn_test)
                 # 学習用データを訓練データと検証データに分割
-                x_train_data, x_val_data, y_train_data, y_val_data = train_test_split(x_learn, y_learn, test_size=second_devide)
+                x_train_data, x_val_data, y_train_data, y_val_data = train_test_split(x_learn, y_learn, test_size=split_leran_to_train_validation)
                 
-                dataset.save_memmap((x_train_data, x_test_data, x_val_data, y_val_data, y_train_data, y_test_data), memmap_dir) # memmapファイルを保存
+                dataset.save_memmap((x_train_data, x_test_data, x_val_data, y_val_data, y_train_data, y_test_data), memmap_dir, globals().items()) # memmapファイルを保存
                 data_size = [y_train_data[0], y_val_data[0], y_test_data[0]]
                 # メモリの開放
                 del input_data, output_data, x_test_data, y_test_data
@@ -422,12 +422,12 @@ if __name__ == '__main__':
             elif load_split_batch:
                 print('訓練データをバッチごとに読み込みます．')
                 # 訓練データをバッチごとに読み込むときのデータセット
-                dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs, global_dict=globals().items())
+                dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs)
                 data_set = dataset.get_paths(data_directory)
                 print(u'総データ数： ' + str(len(data_set)))
-                learning_data, test_data = train_test_split(data_set, test_size=first_divide) # データセットを学習用データとテストデータに分割
-                train_data, val_data = train_test_split(learning_data, test_size=second_devide) # 学習用データを訓練データと検証データに分割
-                data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir)
+                learning_data, test_data = train_test_split(data_set, test_size=split_everything_to_learn_test) # データセットを学習用データとテストデータに分割
+                train_data, val_data = train_test_split(learning_data, test_size=split_leran_to_train_validation) # 学習用データを訓練データと検証データに分割
+                data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir, globals().items())
         
         elif use_memmap:
             data_size = []

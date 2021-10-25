@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# 2021-10-22 13:08:49
+# particle_image_with_fluid_func.py
 
 import shutil
 import os
@@ -53,7 +55,6 @@ class MkImage():
             shutil.rmtree(self.dir_name_0)
     
     def mk_dir(self):
-        
         if not os.path.exists(self.dir_name_0):
             os.mkdir(self.dir_name_0)
         
@@ -104,7 +105,8 @@ class MkImage():
         x = np.arange(self.width)
         y = np.arange(self.height).reshape(-1,1)
 
-        white_noise = random.uniform(0,255*0.01)
+        max_luminance = 255 # 最大輝度
+        white_noise = random.uniform(0, max_luminance*0.01)
         luminance_array = np.sum(self.eq_coef*np.exp(-(z_p - self.depth/2)**2/self.sigma_l**2)*np.exp(-((x-x_p)**2+(y-y_p)**2)/(d_p/2)**2),axis=0)+white_noise # 輝度の計算
         image = luminance_array[self.size*(self.times - 1)//2:self.size*(self.times + 1)//2, self.size*(self.times - 1)//2:self.size*(self.times + 1)//2]
         return image
@@ -166,42 +168,112 @@ class MkImage():
             with open(os.path.join(self.dir_name_0,'dataset_output.txt'),'a') as f:
                 np.savetxt(f,np.loadtxt(data_output_path))
 
-class Data2Memmap():
-    def __init__(self,dir_name_0,dir_name_1,dataset_num_per_process,logical_processor,size):
-        self.dir_name_0 = dir_name_0
-        self.dir_name_1 = dir_name_1
-        self.dataset_num_per_process = dataset_num_per_process
-        self.logical_processor = logical_processor
-        self.size = size
+# memmapファイルを作るクラス
+class Data2Memmap:
+    def __init__(self, y_dim=None, n_jobs=1):
+        self.y_dim = y_dim
+        self.n_jobs = n_jobs
 
-        
-    # ディレクトリの準備
-    def pre_processing(self):
-        if os.path.exists(self.dir_name_1):
-            shutil.rmtree(self.dir_name_1)
-        os.mkdir(self.dir_name_1)
+    def get_paths(self, dir_name):
+        self.dir_name = dir_name # 学習データ（画像）の入ったディレクトリを指定
+        all_input_paths = []
 
-    def data2memmap(self):
-        # y2memmap
-        y_data = np.loadtxt(os.path.join(self.dir_name_0,'dataset_output.txt'))
-        fp = np.memmap(os.path.join('memmap','y_test.npy'), dtype='float32', mode='w+', shape=y_data.shape)
-        del fp
-        fp = np.memmap(os.path.join('memmap','y_test.npy'), dtype='float32', mode='r+', shape=y_data.shape)
-        fp[:] = y_data
-        del fp
-        del y_data
+        dir_list = natsorted([f for f in os.listdir(dir_name) if os.path.isdir(os.path.join(dir_name, f))])
+        for i in tqdm(dir_list, desc='訓練データ読み込み 進捗'):
+            
+            file_count = sum(os.path.isfile(os.path.join(dir_name, i, name)) for name in os.listdir(os.path.join(dir_name, i)))
+            input_paths = Parallel(n_jobs=self.n_jobs, backend='threading')([delayed(self.append_input_path)(i, j) for j in range(file_count//2)])
+            all_input_paths.extend(input_paths)
+            del input_paths
+        output_path = glob(os.path.join(dir_name,'**', 'dataset_output.txt'), recursive=True)[0]
+        output_data = get_input_output_from_file(output_path, top_skip = 1, input_columns = None, output_columns = range(self.y_dim), delimiter = None, encoding = 'UTF-8')
+        data_set = [[a, b] for a, b in zip(all_input_paths, output_data.tolist())]
+        # data_setはリスト，中もリスト
+        # data_set:[[[origin_0_0.png, next_0_0.png], [v_x0, v_y0]]
+        #           [[origin_0_1.png, next_0_1.png], [v_x1, v_y1]]
+        #           [[origin_0_2.png, next_0_2.png], [v_x2, v_y2]]
+        #           ...
+        #           [[origin_i_j.png, next_i_j.png], [v_xk, v_yk]]]
+        return data_set
 
-        # x2memmap
-        fp = np.memmap(os.path.join('memmap','x_test.npy'), dtype='float32', mode='w+', shape=(self.logical_processor*self.dataset_num_per_process,self.size,self.size,2))
-        del fp
-        for processor in tqdm(range(self.logical_processor)):
-            for image_num in range(self.dataset_num_per_process):
-                origin_arr = cv2.imread(os.path.join(self.dir_name_0,str(processor),'origin_{}_{}.png'.format(processor,image_num)),0)
-                next_arr = cv2.imread(os.path.join(self.dir_name_0,str(processor),'next_{}_{}.png'.format(processor,image_num)),0)
-                arr = np.vstack((origin_arr,next_arr)).reshape(1,2,self.size,self.size).transpose(0,2,3,1)/255
-                fp = np.memmap(os.path.join('memmap','x_test.npy'), dtype='float32', mode='r+', shape=(self.logical_processor*self.dataset_num_per_process,self.size,self.size,2))
-                fp[processor*self.dataset_num_per_process+image_num:processor*self.dataset_num_per_process+image_num+1,:,:,:] = arr
+    def append_input_path(self, i, j):
+        file_path_origin = os.path.join(self.dir_name, i, 'origin_{}_{}.png'.format(i,j))
+        file_path_next = os.path.join(self.dir_name, i, 'next_{}_{}.png'.format(i,j))
+        return [file_path_origin, file_path_next]
 
+    def generate_memmap(self, data, memmap_dir, variable_dict):
+        if not isinstance(data, tuple):
+            data = (data,)
+        size_list = []
+        for i in tqdm(data, desc='memmap作成 全体の進捗'):
+            size_list.append(len(i))
+            for key, value in variable_dict: # グローバル／ローカル変数をfor分でループさせる
+                if id(i) == id(value): # 同じid値のときにその変数名を file_name に入れる
+                    file_name = key
+            # memmap用のファイルのパス。
+            self.X_MEMMAP_PATH = 'x_' + file_name + '.npy'
+            self.Y_MEMMAP_PATH = 'y_' + file_name + '.npy'
+
+            self.data_size = len(i)
+            X_memmap = np.memmap(
+                filename=os.path.join(memmap_dir,self.X_MEMMAP_PATH), dtype=np.float32, mode='w+', shape=(self.data_size, 32, 32, 2))
+            y_memmap = np.memmap(
+                filename=os.path.join(memmap_dir,self.Y_MEMMAP_PATH), dtype=np.float32, mode='w+', shape=(self.data_size, self.y_dim))
+            del X_memmap, y_memmap # memmap閉じる
+            
+            a = Parallel(n_jobs=self.n_jobs, backend='threading')([delayed(self.append_memmap)(memmap_dir, data, j) for data, j in zip(i, range(len(i)))])
+            del a
+            
+        return size_list
+
+def mkdata(data_num, memmap_dir):
+    # MkImageクラスのパラメータ*********************************************************************************************************
+    logical_processor = multiprocessing.cpu_count()
+    hope_dataset_num = data_num
+    data_directory = 'result_' + str(data_num) # cwd直下のデータを保存するディレクトリ
+    eq_coef = 240 # 輝度計算の係数
+    sigma_l = 10 # レーザーシートの厚み [pixel]
+    size = 32 # 画像のサイズ [pixel]
+    times = 2 # 計算領域のxy平面の一辺のサイズ / 画像の一辺サイズ
+    depth = 32 # 計算領域の深さ [pixel]
+    particle_num_min = 70 # 粒子数の最小値 [個]
+    particle_num_max = 350 # 粒子数の最大値 [個]
+    d_p_min = 2.4 # 粒子径の最小値 [個]
+    d_p_max = 2.6 # 粒子径の最大値 [個]
+    graph_bool = False # 速度場のグラフを描写するか否か
+    # *********************************************************************************************************************************
+
+    # データセットを並列計算によって作成
+    mkimage = MkImage(logical_processor=logical_processor,
+                      hope_dataset_num=hope_dataset_num,
+                      dir_name_0=data_directory,
+                      eq_coef=eq_coef,
+                      sigma_l=sigma_l,
+                      size=size,
+                      times=times,
+                      depth=depth,
+                      particle_num_min=particle_num_min,
+                      particle_num_max=particle_num_max,
+                      d_p_min=d_p_min,
+                      d_p_max=d_p_max,
+                      graph_bool=graph_bool)
+    mkimage.remove_dir()
+    mkimage.mk_dir()
+    processor = [processor for processor in range(logical_processor)]
+    p = Pool(logical_processor)
+    p.map(mkimage.main,processor)
+
+    # 並列計算の結果をまとめる
+    mkimage.post_processing()
+
+    dataset = Data2Memmap(y_dim=y_dim, n_jobs=n_jobs)
+    data_set = dataset.get_paths(data_directory) # 画像のパスをリストで返す
+    # 全データを訓練データと検証データに分割
+    train_data, val_data = train_test_split(learning_data, test_size=split_everything_to_train_validation)
+    # memmapファイルの作成
+    data_size = dataset.generate_memmap((train_data, val_data), memmap_dir, locals().items())
+
+    return data_size
 
 if __name__ =='__main__':
     print('このプログラムは作業ディレクトリ内のresultフォルダを削除し新たなデータを作成します')
@@ -212,7 +284,7 @@ if __name__ =='__main__':
     hope_dataset_num = int(input('データセット数>'))
     dir_name_0 = 'result' # cwd直下のデータを保存するディレクトリ
     eq_coef = 240 # 輝度計算の係数
-    sigma_l = 5 # レーザーシートの厚み [pixel]
+    sigma_l = 10 # レーザーシートの厚み [pixel]
     size = 32 # 画像のサイズ [pixel]
     times = 2 # 計算領域のxy平面の一辺のサイズ / 画像の一辺サイズ
     depth = 32 # 計算領域の深さ [pixel]
