@@ -135,12 +135,15 @@ def model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch,
         x_val_data = np.memmap(filename=os.path.join(memmap_dir, 'x_val_data.npy'), dtype=np.float32, mode='r').reshape(-1, 32, 32, 2)
         y_val_data = read_ymemmap(filename=os.path.join(memmap_dir, 'y_val_data.npy'), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
         
-        history = model.fit([x_train_data[:,:,:,0],x_train_data[:,:,:,1]],
+        input_data = [x_train_data[:,:,:,0],x_train_data[:,:,:,1]]
+        val_input_data = [x_val_data[:,:,:,0], x_val_data[:,:,:,1]]
+        
+        history = model.fit(input_data,
                             y_train_data,
                             verbose=verbose,
                             epochs=epochs,
                             batch_size=batch_size,
-                            validation_data=([x_val_data[:,:,:,0], x_val_data[:,:,:,1]], y_val_data),
+                            validation_data=(val_input_data, y_val_data),
                             callbacks=callbacks,
                             )
         

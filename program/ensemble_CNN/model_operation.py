@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-22 16:21:45
+# 2021-10-26 10:45:13
 # model_operation.py
 
 import tensorflow as tf
@@ -12,8 +12,6 @@ def model_load(model_path):
 # https://wak-tech.com/archives/1761
 def reset_weights(model):
     for layer in model.layers:
-        print('_________________________________')
-        print(layer)
         if isinstance(layer, tf.keras.Model): #if you're using a model as a layer
             reset_weights(layer) #apply function recursively
             continue
@@ -27,10 +25,10 @@ def reset_weights(model):
             if ("kernel_initializer" or "recurrent_initializer") not in key: # 重みの初期値を探す
                   continue #if no, skip it
             else:
-                print("key:")
-                print(key)
-                print("kernel_initializer:")
-                print(initializer)
+                # print("key:")
+                # print(key)
+                # print("kernel_initializer:")
+                # print(initializer)
                 
                 # 既存の重み，バイアスを初期値に入れ替え
                 weights = layer.get_weights()

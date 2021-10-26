@@ -14,11 +14,13 @@ import cv2
 import multiprocessing
 from multiprocessing import Pool
 from tqdm import tqdm
+from joblib import Parallel, delayed
 from sklearn.model_selection import train_test_split
 from glob import glob
 from natsort import natsorted
 
-from convenient import remove_dir
+from convenient import remake_dir
+from read_data import read_image, get_input_output_from_file
 
 class MkImage():
     def __init__(self,
@@ -165,13 +167,13 @@ class MkImage():
                 graph_ux, graph_uy , graph_uz = self.generate_flow(x,y,z,False)
                 self.flow_visualization(x, y, graph_ux, graph_uy, processor, dataset_num)
 
-    def post_processing(self):
+    def post_processing(self, y_dim):
         stick_output_list = [os.path.join(self.dir_name_0,'dataset_output_{}.txt'.format(i)) for i in range(self.logical_processor)]
         with open(os.path.join(self.dir_name_0,'dataset_output.txt'),'w') as f:
             f.write('# ux   uy   uz \n')
         for data_output_path in tqdm(stick_output_list):
             with open(os.path.join(self.dir_name_0,'dataset_output.txt'),'a') as f:
-                np.savetxt(f,np.loadtxt(data_output_path))
+                np.savetxt(f,np.loadtxt(data_output_path).reshape(-1, y_dim))
 
 # memmapファイルを作るクラス
 class Data2Memmap:
@@ -295,9 +297,11 @@ class Data2Memmap:
 
         del X_memmap, y_memmap
 
-def mkdata(data_num, memmap_dir, split_rate=None):
+def mkdata(data_num, memmap_dir, y_dim, split_rate=None):
     # MkImageクラスのパラメータ*********************************************************************************************************
-    logical_processor = multiprocessing.cpu_count()
+    logical_processor = multiprocessing.cpu_count() - 1
+    if logical_processor >= data_num:
+        logical_processor = data_num
     hope_dataset_num = data_num
     data_directory = 'result_' + str(data_num) # cwd直下のデータを保存するディレクトリ
     eq_coef = 240 # 輝度計算の係数
@@ -313,8 +317,8 @@ def mkdata(data_num, memmap_dir, split_rate=None):
     # *********************************************************************************************************************************
 
     # 前回のデータがある場合，削除
-    remove_dir(data_directory)
-    remove_dir(memmap_dir)
+    remake_dir(data_directory)
+    remake_dir(memmap_dir)
 
     # データセットを並列計算によって作成
     mkimage = MkImage(logical_processor=logical_processor,
@@ -330,21 +334,20 @@ def mkdata(data_num, memmap_dir, split_rate=None):
                       d_p_min=d_p_min,
                       d_p_max=d_p_max,
                       graph_bool=graph_bool)
-    mkimage.mk_dir()
     processor = [processor for processor in range(logical_processor)]
     p = Pool(logical_processor)
     p.map(mkimage.main,processor)
 
     # 並列計算の結果をまとめる
-    mkimage.post_processing()
+    mkimage.post_processing(y_dim)
 
-    dataset = Data2Memmap(y_dim=y_dim, n_jobs=n_jobs)
+    dataset = Data2Memmap(y_dim=y_dim, n_jobs=logical_processor)
     data_set = dataset.get_paths(data_directory) # 画像のパスをリストで返す
     if split_rate is not None:
-        if hasattr(split_rate,'__iter__')
+        if hasattr(split_rate,'__iter__'):
             if len(split_rate) == 1:
                 # 全データを訓練データと検証データに分割
-                train_data, val_data = train_test_split(learning_data, test_size=split_rate[0])
+                train_data, val_data = train_test_split(data_set, test_size=split_rate[0])
                 data_list = (train_data, val_data)
             elif len(split_rate) == 2:
                 # データセットを学習用データとテストデータに分割
@@ -358,7 +361,7 @@ def mkdata(data_num, memmap_dir, split_rate=None):
                 sys.exit(1) # 異常終了
         else:
             # 全データを訓練データと検証データに分割
-            train_data, val_data = train_test_split(learning_data, test_size=split_rate)
+            train_data, val_data = train_test_split(data_set, test_size=split_rate)
             data_list = (train_data, val_data)
     else:
         test_data = data_set
@@ -370,60 +373,36 @@ def mkdata(data_num, memmap_dir, split_rate=None):
     return data_size
 
 if __name__ =='__main__':
-    print('このプログラムは作業ディレクトリ内のresultフォルダを削除し新たなデータを作成します')
-    cwd_path = input('作業ディレクトリを入力してください>')
-    
-    # MkImageクラスのパラメータ*********************************************************************************************************
-    logical_processor = int(input('何コアで並列計算させますか？上限は{}です>'.format(multiprocessing.cpu_count())))
-    hope_dataset_num = int(input('データセット数>'))
-    dir_name_0 = 'result' # cwd直下のデータを保存するディレクトリ
-    eq_coef = 240 # 輝度計算の係数
-    sigma_l = 10 # レーザーシートの厚み [pixel]
-    size = 32 # 画像のサイズ [pixel]
-    times = 2 # 計算領域のxy平面の一辺のサイズ / 画像の一辺サイズ
-    depth = 32 # 計算領域の深さ [pixel]
-    particle_num_min = 70 # 粒子数の最小値 [個]
-    particle_num_max = 350 # 粒子数の最大値 [個]
-    d_p_min = 2.4 # 粒子径の最小値 [個]
-    d_p_max = 2.6 # 粒子径の最大値 [個]
-    graph_bool = False # 速度場のグラフを描写するか否か
-    # *********************************************************************************************************************************
+    # 後のif分判定に使うフラグ
+    interactive_mode = True
+    # プレースホルダー
+    data_num = None
 
-    # Data2Memmapクラスのパラメータ******************************************************************************************************
-    dir_name_1 = 'memmap' # cwd直下のデータを保存するディレクトリ
-    # *********************************************************************************************************************************
+    i = 1
+    while i < len(sys.argv):
+        interactive_mode = False
+        if sys.argv[i].lower().startswith('-h'): # ヘルプの表示
+            print(u'使い方: python {}'.format(os.path.basename(sys.argv[0])) +
+                  u' -d[ata_number] data_num .... \n' +
+                  u'---- オプション ----\n' +
+                  u'-d[ata_number] data_num     -> 学習またはテストに使うデータ数を data_num で指定．\n' +
+                  u'-h[elp]                     -> ヘルプの表示．\n'
+                  )
+            sys.exit(0) # 正常終了, https://www.sejuku.net/blog/24331
+        elif sys.argv[i].lower().startswith('-d'): # データ数の指定
+            i += 1
+            data_num = int(sys.argv[i])
+        i += 1
 
-    # 作業ディレクトリにチェンジディレクトリ
-    os.chdir(cwd_path)
-    
-    # データセットを並列計算によって作成
-    mkimage = MkImage(logical_processor=logical_processor,
-                      hope_dataset_num=hope_dataset_num,
-                      dir_name_0=dir_name_0,
-                      eq_coef=eq_coef,
-                      sigma_l=sigma_l,
-                      size=size,
-                      times=times,
-                      depth=depth,
-                      particle_num_min=particle_num_min,
-                      particle_num_max=particle_num_max,
-                      d_p_min=d_p_min,
-                      d_p_max=d_p_max,
-                      graph_bool=graph_bool)
-    mkimage.remove_dir()
-    mkimage.mk_dir()
-    processor = [processor for processor in range(logical_processor)]
-    p = Pool(logical_processor)
-    p.map(mkimage.main,processor)
+    # 学習，推論に使用するデータ数が指定されているのか確認，学習／推論する際に必要
+    if data_num is None:
+        data_num = input_int('学習／推論に使うデータ数を指定してください．>> ')
+        assert data_num != '' # 何も入力していない場合エラー
 
-    # 並列計算の結果をまとめる
-    mkimage.post_processing()
+    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
+    y_dim = 3 # 変位の次元数
+    memmap_dir = 'memmap_' + str(data_num) # デフォルトでmemmapを保存するディレクトリ
+    split_rate = [0.2, 0.25]
+    # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
 
-    # データセットをnpyファイルに変換
-    data2memmap = Data2Memmap(dir_name_0=dir_name_0,
-                              dir_name_1=dir_name_1,
-                              dataset_num_per_process=mkimage.dataset_num_per_process,
-                              logical_processor=logical_processor,
-                              size=size)
-    data2memmap.pre_processing()
-    data2memmap.data2memmap()
+    mkdata(data_num, memmap_dir, y_dim, split_rate)

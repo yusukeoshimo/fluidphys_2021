@@ -8,7 +8,7 @@ import os
 import shutil
 
 def input_str(message):
-    return (raw_input if sys.version_info.major <= 2 else input)(message)
+    return (raw_input if sys.version_info.major <= 2 else input)(message).strip().strip("'")
 
 def input_int(message):
     while True:
@@ -26,6 +26,7 @@ def input_float(message):
         except:
             pass
 
-def remove_dir(dir_name):
-        if os.path.exists(dir_name):
-            shutil.rmtree(dir_name)
+def remake_dir(dir_name):
+    if os.path.exists(dir_name):
+        shutil.rmtree(dir_name)
+    os.mkdir(dir_name)

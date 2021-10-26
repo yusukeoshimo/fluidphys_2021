@@ -142,16 +142,15 @@ def objective(trial):
     input1 = Input(shape = input_shape)
     input2 = Input(shape = input_shape)
     # 255で割るLambdaレイヤ
-    normalize_layer = Lambda(lambda x: x/255.0) # change scale
-    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1))
+    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1)/255.0) # expand dim, change scale
     c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
     flatten_layer =  Flatten()
     # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
     # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
-    x1 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input1))))
+    x1 = flatten_layer(c2d(preprocessing_layer(input1)))
     # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
     # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
-    x2 = flatten_layer(c2d(preprocessing_layer(normalize_layer(input2))))
+    x2 = flatten_layer(c2d(preprocessing_layer(input2)))
     x = Concatenate()([x1, x2])
     for i in range(num_layer):
         x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
@@ -218,6 +217,7 @@ if __name__ == '__main__':
     n_jobs = 1 # シングルコアでの実行
     time_out = None
     check_param = False
+    need_parallel_process = True
     i = 1
     while i < len(sys.argv):
         interactive_mode = False
@@ -347,6 +347,7 @@ if __name__ == '__main__':
         data_directory = input_str('学習データのディレクトリを指定してください．>> ').strip()
     if any(['.npy' in i for i in os.listdir(data_directory)]): # 学習データのディレクトリの中身がmemmapの拡張子か判定．
         use_memmap = True
+        need_parallel_process = False
         memmap_dir = data_directory
     
     # 学習データの読み込み条件の指定．
@@ -358,7 +359,8 @@ if __name__ == '__main__':
     if interactive_mode:
         if input_str('Optunaによる最適化に指定した初期値を使いますか．（初期値は {} に直接書き込む必要があります．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
             set_initial_parms = True
-        n_jobs = max(input_int('memmapファイル作成時の並列処理の分割数を指定してください．（最大分割数{}，1だとシングルコアで計算．）>> '.format(multiprocessing.cpu_count())), 1)
+        if need_parallel_process:
+            n_jobs = max(input_int('memmapファイル作成時の並列処理の分割数を指定してください．（最大分割数{}，1だとシングルコアで計算．）>> '.format(multiprocessing.cpu_count())), 1)
         time_out = input_str('Optunaによる最適化の計算時間を指定してください．（単位[hour]，指定しなければずっと計算を行う．）>> ')
         try:
             time_out=float(time_out)*60*60 # hour -> secondに変換

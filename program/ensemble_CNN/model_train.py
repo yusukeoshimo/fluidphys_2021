@@ -68,6 +68,7 @@ def model_train(model,
                             validation_data=([x_val_data[:,:,:,0], x_val_data[:,:,:,1]], y_val_data),
                             callbacks=callbacks,
                             )
+        del x_train_data, y_train_data, x_val_data, y_val_data
     else:
         #データ数を外から中に入れる
         train_data_size = data_size[0]
@@ -82,24 +83,28 @@ def model_train(model,
                             validation_data=MySequenceF(val_data_size, batch_size, 'val_data', memmap_dir, y_dim, output_num, output_axis),
                             )
             
-    del train_data_size, val_data_size
+        del train_data_size, val_data_size
     return model, history
 
 # 出力の絶対値平均を計算
 def calc_am(memmap_dir, y_dim, output_num, output_axis):
     memmap_list = os.listdir(memmap_dir)
+    am_dict = {}
     for i in memmap_list:
         # 1/N Σ(|x|+|y|+|z|)/3
         if 'y_' in i:
             if 'train' in i:
                 y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
                 train_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+                am_dict['train_am'] = train_am
             elif 'val' in i:
                 y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
                 val_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+                am_dict['val_am'] = val_am
             elif 'test' in i:
                 y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
                 test_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
+                am_dict['test_am'] = test_am
     del y_memmap
     gc.collect()
-    return train_am, val_am, test_am
+    return am_dict

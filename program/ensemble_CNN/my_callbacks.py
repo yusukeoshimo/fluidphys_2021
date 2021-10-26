@@ -3,6 +3,7 @@
 # 2021-09-29 15:49:06
 # my_callbacks.py
 
+import os
 import numpy as np
 from adjustText import adjust_text
 import matplotlib
@@ -25,10 +26,13 @@ class LossHistory(callbacks.Callback):
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|)/$' + str(output_num)
         elif output_num == 3:
             self.ylabel = 'loss/$1/N\sum_{k=1}^{N} (|x_k|+|y_k|+|z_k|)/$' + str(output_num)
-        if hasattr(am_list, '__iter__'):
-            self.train_am = am_list[0]
-            self.val_am = am_list[1]
-            self.test_am = am_list[2]
+        try:
+            if am_list is not None:
+                self.train_am = am_list['train_am']
+                self.val_am = am_list['val_am']
+                self.test_am = am_list['test_am']
+        except:
+            pass
         self.train_loss = []
         self.train_metrics = []
         self.val_loss = []
@@ -49,7 +53,7 @@ class LossHistory(callbacks.Callback):
         array_train_metrics = np.array(self.train_metrics).reshape(-1, 1)
         array_val_metrics = np.array(self.val_metrics).reshape(-1, 1)
         loss_history = np.hstack((array_epoch, array_train_loss, array_val_loss, array_train_metrics, array_val_metrics))
-        with open(os.path.join(self.save_dir, 'model_{}_loss_history.txt'.format(model_num)), 'w') as f:
+        with open(os.path.join(self.save_dir, 'model_{}_loss_history.txt'.format(self.model_num)), 'w') as f:
             f.write('# epochs                 train_loss               val_loss                 train_metrics            val_metrics\n')
             np.savetxt(f, loss_history)
         
