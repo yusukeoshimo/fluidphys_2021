@@ -6,6 +6,7 @@
 import sys
 import os
 import numpy as np
+import time
 
 from convenient import input_str, input_int, input_float, remake_dir
 
@@ -22,6 +23,11 @@ def check_output_axis(output_num):
         assert isinstance(output_axis, int) # output_axis がint型になってなければエラー
         return output_axis
     return None
+
+def write_txt(file_name, mode, contents):
+    with open(file_name, mode=mode) as f:
+        f.write(contents)
+
 
 if __name__ == '__main__':
     # カレントディレクトリの取得
@@ -133,6 +139,7 @@ if __name__ == '__main__':
     memmap_dir = 'memmap_' + str(data_num) # デフォルトでmemmapを保存するディレクトリ
     save_predict_result = 'predict_result.txt' # 推論結果を保存するファイル
     save_learning_result = 'learning_result' # 学習結果を保存するディレクトリ
+    learning_time_save = os.path.join(save_learning_result, 'learning_time.txt') # 学習時間を保存するファイルのパス
     split_everything_to_train_validation = 0.2 # 8:2，訓練データ:検証データ
     split_rate = [split_everything_to_train_validation]
     # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
@@ -144,6 +151,11 @@ if __name__ == '__main__':
     if model_learning:
         remake_dir(savedir_ensemble_model)
         remake_dir(save_learning_result)
+
+        # 学習時間を保存するファイルの作成
+        write_txt(learning_time_save, 'w', '# モデル番号 学習時間     \n')
+        learning_time_list = [] # 学習時間を保存する空のリスト
+        
         for i in range(model_num):
             print('\n{}個目のモデルの学習データの作成\n'.format(i))
             ensemble_model = model # ロードしたモデル構造
@@ -164,10 +176,10 @@ if __name__ == '__main__':
             # 学習条件
             verbose = 1
             epochs = 100
-            batch_size = 512
+            batch_size = 512 # Optunaの最適化結果を確認して最適なものに変更する必要あり
 
-            
             print('\n{}個目のモデルの学習を開始\n'.format(i))
+            time_start = time.time() # 学習開始時の時間を記録
             # モデルの学習
             ensemble_model, history = model_train(model=ensemble_model, 
                                                   verbose=verbose, 
@@ -181,9 +193,17 @@ if __name__ == '__main__':
                                                   output_axis=output_axis, 
                                                   data_size=data_size
                                                   )
-            
+            time_end = time.time() # 学習終了時の時間を記録
+            learning_time = time_end - time_start # 学習時間
+            learning_time_list.append(learning_time)
+            # 学習時間をテキストファイルに書き出す
+            write_txt(learning_time_save, 'a', '{} {}\n'.format(i, learning_time))
             # モデルの保存
             ensemble_model.save(os.path.join(savedir_ensemble_model, 'ensemble_model_{}.h5'.format(i)))
+        # 学習時間の平均を計算
+        learning_time_mean = np.mean(np.array(learning_time_list))
+        # 学習時間の平均をテキストファイルに書き出す
+        write_txt(learning_time_save, 'a', 'average time : {}\n'.format(learning_time_mean))
     
     if model_predict:
         # 推論用モデルのロード
@@ -200,11 +220,11 @@ if __name__ == '__main__':
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
 
         # 推論結果を保存するテキストデータを作成
-        with open(os.path.join(save_predict_result), 'w') as f:
-            f.write('# モデル数：{}\n'.format(model_num) +
-                    '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
-                    '# 推論したデータのパス：{}\n'.format(memmap_dir if memmap_dir.startswith('C:') else '..\{}'.format(memmap_dir)) +
-                    '# 番号     平均     分散     \n')
+        write_txt(os.path.join(save_predict_result), 'w',
+                  '# モデル数：{}\n'.format(model_num) +
+                  '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
+                  '# 推論したデータのパス：{}\n'.format(memmap_dir if memmap_dir.startswith('C:') else '..\{}'.format(memmap_dir)) +
+                  '# 番号     平均     分散     \n')
         
         for i in range(data_size):
             # 入力データの取得
@@ -233,5 +253,4 @@ if __name__ == '__main__':
             output_variance = np.var(move_distance)
 
             # 推論結果を保存するテキストデータを作成
-            with open(os.path.join(save_predict_result), 'a') as f:
-                f.write('{} {} {}\n'.format(i, output_mean, output_variance))
+            write_txt(os.path.join(save_predict_result), 'a', '{} {} {}\n'.format(i, output_mean, output_variance))
