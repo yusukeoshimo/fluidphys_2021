@@ -168,7 +168,8 @@ def objective(trial):
     nan = keras.callbacks.TerminateOnNaN()
     
     #epoch毎にグラフ描画
-    cb_figure = LossHistory(save_name = 'best_model_history', memmap_dir=memmap_dir, trial_num=trial._trial_id-1, output_num=output_num, am_list=am_list)
+    global minimize_loss
+    cb_figure = LossHistory(save_name = 'best_model_history', memmap_dir=memmap_dir, trial_num=trial._trial_id-1, minimize_loss=minimize_loss, output_num=output_num, am_list=am_list)
     
     #畳み込み層の重みの共有
     copy_weights = CopyWeights(model)
@@ -188,7 +189,6 @@ def objective(trial):
     
     #損失の比較，モデルの保存
     loss = history.history['val_loss'][-1]
-    global minimize_loss
     if minimize_loss > loss:
         minimize_loss = loss
         model.save(best_model_name)
@@ -222,6 +222,7 @@ if __name__ == '__main__':
     output_axis = 0
     n_jobs = 1 # シングルコアでの実行
     time_out = None
+    n_trials = None
     i = 1
     while i < len(sys.argv):
         interactive_mode = False

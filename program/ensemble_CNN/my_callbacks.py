@@ -14,7 +14,8 @@ from matplotlib import pyplot as plt
 from tensorflow.keras import callbacks
 
 
-#動的グラフを描画するためのクラス，ネット参照
+# 動的グラフを描画するためのクラス，ネット参照
+# 学習毎にデータを保存する
 class LossHistory(callbacks.Callback):
     def __init__(self, save_name=None, save_dir=None, model_num=0, output_num=None, am_list=None):
         # コンストラクタに保持用の配列を宣言しておく
@@ -74,7 +75,7 @@ class LossHistory(callbacks.Callback):
         plt.rcParams['legend.fontsize'] = 12.0
 
         # グラフ描画部
-        plt.title('learning curve ensemble model {}: '+str(self.model_num))
+        plt.title('learning curve ensemble model {}: '.format(self.model_num))
         plt.xlabel('epoch')
         plt.ylabel(self.ylabel)
         plt.plot(self.train_metrics, label=self.loss)

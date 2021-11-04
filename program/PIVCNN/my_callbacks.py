@@ -13,7 +13,8 @@ from matplotlib import pyplot as plt
 from tensorflow.keras import callbacks
 
 
-#動的グラフを描画するためのクラス，ネット参照
+# 動的グラフを描画するためのクラス，ネット参照
+# 最も良いモデルの結果だけ保存
 class LossHistory(callbacks.Callback):
     def __init__(self, save_name=None, memmap_dir=None, trial_num=0, minimize_loss=1e05, output_num=None, am_list=None):
         # コンストラクタに保持用の配列を宣言しておく
@@ -43,8 +44,11 @@ class LossHistory(callbacks.Callback):
         self.val_metrics.append(logs['val_'+self.loss]/self.val_am)
     
     def on_train_end(self, logs={}):
+        print('_________________________________________________________')
+        print(self.minimize_loss > logs['val_'+self.loss])
         if self.minimize_loss > logs['val_'+self.loss]:
             self.minimize_loss = logs['val_'+self.loss]
+            print(self.minimize_loss)
             # loss_history.txtにデータを保存
             array_epoch = np.arange(len(self.train_loss)).reshape(-1, 1)
             array_train_loss = np.array(self.train_loss).reshape(-1, 1)
