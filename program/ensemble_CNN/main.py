@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-26 11:34:28
+# 2021-11-04 21:14:39
 # main.py
 
 import sys
@@ -24,6 +24,7 @@ def check_output_axis(output_num):
         return output_axis
     return None
 
+# 書き込み専用の関数，mode は 'w'か'a'
 def write_txt(file_name, mode, contents):
     with open(file_name, mode=mode) as f:
         f.write(contents)
@@ -123,10 +124,9 @@ if __name__ == '__main__':
     # モデルの出力数の確認
     if model_learning:
         model = model_load(model_path)
-        model = reset_weights(model) # 重み，バイアスの初期化
         output_num = model.output.shape[-1] # 出力数の抽出
         output_axis = check_output_axis(output_num)
-    elif model_predict:
+    elif model_predict and not model_learning:
         # 拡張子が '.h5' のファイルのリストを作成
         models_path_list = [os.path.join(model_dir, f) for f in os.listdir(model_dir) if '.h5' in f]
         model = model_load(models_path_list[0])
@@ -158,7 +158,7 @@ if __name__ == '__main__':
         
         for i in range(model_num):
             print('\n{}個目のモデルの学習データの作成\n'.format(i))
-            ensemble_model = model # ロードしたモデル構造
+            ensemble_model = reset_weights(model) # 重み，バイアスの初期化
             data_size = mkdata(data_num, memmap_dir, y_dim, split_rate) # 学習データの作成，memmapファイルに変換
             am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-10-20 15:08:55
+# 14:04 2021/11/04 
 # main.py
 
 #---- オプション ----
@@ -127,7 +127,7 @@ def objective(trial):
         OPTIMIZER = Adam(learning_rate=learning_rate)
         
         #batch_size, 2^n, 2^10=1024
-        batch_size_index = trial.suggest_int('batchsize', 9, 11)
+        batch_size_index = trial.suggest_int('batchsize', 6, 10)
 
     # Pooling層を使うか使わないか
     # if Pooling_layer == 0:
@@ -142,7 +142,8 @@ def objective(trial):
     input1 = Input(shape = input_shape)
     input2 = Input(shape = input_shape)
     # 255で割るLambdaレイヤ
-    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1)/255.0) # expand dim, change scale
+    max_luminance = 255.0 # 最大輝度数
+    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1)/max_luminance) # expand dim, change scale
     c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
     flatten_layer =  Flatten()
     # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
@@ -180,7 +181,7 @@ def objective(trial):
 
     # モデルの学習の設定
     verbose = 1
-    epochs = 100
+    epochs = 300
     
     # モデルの学習
     model, history = model_train(model, verbose, epochs, batch_size, callbacks, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size)
@@ -201,6 +202,7 @@ def objective(trial):
     return loss
 
 if __name__ == '__main__':
+    # if文判定用のフラグ
     interactive_mode = True
     data_determination = False
     use_memmap = False
@@ -208,16 +210,18 @@ if __name__ == '__main__':
     load_split_batch = False
     batch_determination = False
     monte_carlo_dropout = False
-    dropout_rate = None # ドロップアウト層の値
-    default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
     pre_training_MC = False
-    output_num = 2 # 出力数のデフォルト値
-    output_axis = 0 # プレースホルダー
     set_initial_parms = False
-    n_jobs = 1 # シングルコアでの実行
-    time_out = None
     check_param = False
     need_parallel_process = True
+    # プレースホルダー，デフォルト値
+    data_directory = None
+    dropout_rate = None # ドロップアウト層の値
+    default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
+    output_num = 2 # 出力数のデフォルト値
+    output_axis = 0
+    n_jobs = 1 # シングルコアでの実行
+    time_out = None
     i = 1
     while i < len(sys.argv):
         interactive_mode = False
@@ -343,15 +347,17 @@ if __name__ == '__main__':
     
     
     # 学習データの読み込み
-    if interactive_mode or not data_determination:
+    if (interactive_mode or not data_determination) and not check_param:
         data_directory = input_str('学習データのディレクトリを指定してください．>> ').strip()
-    if any(['.npy' in i for i in os.listdir(data_directory)]): # 学習データのディレクトリの中身がmemmapの拡張子か判定．
+    if data_directory is None: # 学習データのディレクトリの中身がmemmapの拡張子か判定．
+        pass
+    elif any(['.npy' in i for i in os.listdir(data_directory)]):
         use_memmap = True
         need_parallel_process = False
         memmap_dir = data_directory
     
     # 学習データの読み込み条件の指定．
-    if interactive_mode or not batch_determination:
+    if (interactive_mode or not batch_determination) and not check_param:
         if input_str('学習データをバッチごとに読み込みますか．（データが多いときはy，y/n）>> ').lower().strip().startswith('y'):
             load_split_batch = True
     
