@@ -57,3 +57,35 @@ def get_input_output_from_file(file_name, top_skip = 0, input_columns = (0,), ou
 def read_ymemmap(filename, dtype=np.float32, mode='r', y_dim=3, output_num=2, output_axis=0):
     y_memmap = np.memmap(filename=filename, dtype=dtype, mode=mode).reshape(-1, y_dim)
     return y_memmap[:, : output_num] if output_num != 1 else y_memmap[:, output_axis].reshape(-1,1)
+
+def memmap_datanum(memmap_dir, y_dim, output_num, output_axis):
+    memmap_files = os.listdir(memmap_dir)
+    data_size_dict = {'train':None, 'val':None, 'test':None}
+    data_size = [] # 空のリスト
+    for memmap_file in memmap_files:
+        y_memmap = read_ymemmap(memmap_file, y_dim, output_num, output_axis)
+        if 'train' in memmap_file:
+            data_size_dict['train'] = y_memmap.shape[0]
+        if 'val' in memmap_file:
+            data_size_dict['val'] = y_memmap.shape[0]
+        if 'test' in memmap_file:
+            data_size_dict['test'] = y_memmap.shape[0]
+    data_size.append(data_size_dict['train'])
+    data_size.append(data_size_dict['val'])
+    data_size.append(data_size_dict['test'])
+    data_size.remove(None)
+    return data_size
+
+def recursive_data_processing(data_dir):
+    data_dir_list = [] # 空のリスト
+    for i in os.listdir(data_dir):
+        i = os.path.join(data_dir,i) # i にディレクトリ部分のパスをつける
+        if len(os.listdir(i)) == 0:
+            continue # 空のディレクトリの場合は無視
+        elif 'png' in os.listdir(i)[0]:
+            data_dir_list.append(i) # 画像ファイルの場合はパスをリストに追加
+        elif any(['.npy' in i for i in os.listdir(i)]):
+            data_dir_list.append(i) # memmapファイルの場合はパスをリストに追加
+        else:
+            data_dir_list += recursive_data_processing(i) # 再帰的に処理
+    return data_dir_list

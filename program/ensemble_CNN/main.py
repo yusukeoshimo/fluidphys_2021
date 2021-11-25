@@ -9,6 +9,7 @@ import numpy as np
 import time
 
 from convenient import input_str, input_int, input_float, remake_dir
+from read_data import memmap_datanum, recursive_data_processing
 
 def check_output_axis(output_num):
     if output_num == 1:
@@ -35,16 +36,17 @@ if __name__ == '__main__':
     cwd = os.getcwd()
 
     # 後のif分判定に使うフラグ
-    interactive_mode = True
-    model_learning = False
-    model_predict = False
-    load_split_batch = False
+    interactive_mode = True # インタラクティブか
+    model_learning = False # 学習を行うか
+    model_predict = False # 推論を行うか
+    load_split_batch = False # バッチごとにデータを読み込むか
+    use_existing_data = False # 既存のデータを使うか
     
     # プレースホルダー
-    model_path = None
-    data_num = None
-    model_num = None
-    model_dir = None
+    model_path = None # 学習モデルのパス
+    data_num = None # データ数
+    model_num = None # 学習に使うモデル数
+    model_dir = None # 推論時に使うモデルのディレクトリ
 
     i = 1
     while i < len(sys.argv):
@@ -66,11 +68,11 @@ if __name__ == '__main__':
             model_path = sys.argv[i]
         elif sys.argv[i].lower().startswith('-d'): # データ数の指定
             i += 1
-            data_num = sys.argv[i]
+            data_num = int(sys.argv[i])
         elif sys.argv[i].lower().startswith('-l'): # モデルの学習を行う
             model_learning = True
             i += 1
-            model_num = sys.argv[i]
+            model_num = int(sys.argv[i])
         elif sys.argv[i].lower().startswith('-p'): # モデルによる推論を行う
             model_predict = True
             if not sys.argv[i].startswith('-'):
@@ -97,8 +99,14 @@ if __name__ == '__main__':
         assert model_num != '' # 何も入力していない場合エラー
         assert os.path.exists(model_dir) # ファイルが存在していない場合エラー
 
+    # 推論時に既存のデータを使うか，使うならばそのディレクトリの指定
+    if data_num is None and model_predict:
+        if input_str('既存のデータセットを使用しますか？ y or n >>').lower().startswith('y'):
+            use_existing_data = True
+            existing_data_dir = input_str('推論時に使うデータのディレクトリを指定してください．>> ')
+
     # 学習，推論に使用するデータ数が指定されているのか確認，学習／推論する際に必要
-    if data_num is None:
+    if data_num is None and not use_existing_data:
         data_num = input_int('学習／推論に使うデータ数を指定してください．>> ')
         assert data_num != '' # 何も入力していない場合エラー
 
@@ -137,7 +145,7 @@ if __name__ == '__main__':
     # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     y_dim = 3 # 変位の次元数
     memmap_dir = 'memmap_' + str(data_num) # デフォルトでmemmapを保存するディレクトリ
-    save_predict_result = 'predict_result.txt' # 推論結果を保存するファイル
+    save_predict_result = 'predict_result' # 推論結果を保存するファイル
     save_learning_result = 'learning_result' # 学習結果を保存するディレクトリ
     learning_time_save = os.path.join(save_learning_result, 'learning_time.txt') # 学習時間を保存するファイルのパス
     split_everything_to_train_validation = 0.2 # 8:2，訓練データ:検証データ
@@ -206,51 +214,71 @@ if __name__ == '__main__':
         write_txt(learning_time_save, 'a', 'average time : {}\n'.format(learning_time_mean))
     
     if model_predict:
+        save_predict_dir = '{}_{}'.format(save_predict_result, os.path.basename(model_dir))
+        remake_dir(save_predict_dir)
+
         # 推論用モデルのロード
         models_list = [] # 推論用モデルを保存するリスト
         for i in models_path_list:
             models_list.append(model_load(i))
         assert len(models_list) != 0 # 推論用モデルがなければエラー
 
-        # 推論用データの作成
-        data_size = mkdata(data_num, memmap_dir, y_dim) # 推論用データの作成，memmapファイルに変換
-        if hasattr(data_size, '__iter__'):
-            assert len(data_size) == 1 # data_size 内の要素が1つでなければエラー
-            data_size = data_size[0]
-        am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
-
-        # 推論結果を保存するテキストデータを作成
-        write_txt(os.path.join(save_predict_result), 'w',
-                  '# モデル数：{}\n'.format(model_num) +
-                  '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
-                  '# 推論したデータのパス：{}\n'.format(memmap_dir if memmap_dir.startswith('C:') else '..\{}'.format(memmap_dir)) +
-                  '# 番号     平均     分散     \n')
-        
-        for i in range(data_size):
-            # 入力データの取得
-            X_MEMMAP_NAME = 'x_test_data'
-            X = np.memmap(filename=os.path.join(memmap_dir, '{}.npy'.format(X_MEMMAP_NAME)), 
-                          dtype=np.float32, 
-                          mode='r',
-                          shape=(data_size, 32, 32, 2)
-                          )
-            input_data = [np.expand_dims(X[i,:,:,0], 0), np.expand_dims(X[i,:,:,1], 0)]
-            #  shape =            (1,32,32),                      (1,32,32)
-
-            output_list = [] # 出力を入れる空のリストを作成
-            for predict_model in models_list:
-                predict_model.summary()
-                history = predict_model.predict(x=input_data)
-                output_list.append(history) # 出力をリストに追加
-            output_array = np.array(output_list) # リストを配列に変換
-            # output_array.shape = (推論したモデルの数，出力の数)
-            assert isinstance(output_array, np.ndarray) # 配列に変換できない場合はエラー
-            # 平均の計算
-            # 移動距離の計算，move_distance = √(u_x^2 + u_y^2 + u_z^2)
-            move_distance = np.sqrt(np.sum(np.square(output_array),-1).reshape(-1,1))
-            output_mean = np.mean(move_distance)
-            # 分散の計算，variance = 1/n * Σ(y-y_mean)^2
-            output_variance = np.var(move_distance)
+        if use_existing_data:
+            data_dir_list = recursive_data_processing(existing_data_dir)
+        else:
+            data_dir_list = ['make_predict_data']
+        for data_dir in data_dir_list:
+            # 推論結果を保存するテキストファイルのパス
+            save_predict_txt = os.path.join(save_predict_result)
+            # 推論時に既存データを使う場合，データ数を確認
+            if use_existing_data:
+                if any(['.npy' in i for i in os.listdir(data_dir)]):
+                    data_size = memmap_datanum(data_dir, y_dim, output_num, output_axis)
+                else:
+                    from particle_image_with_fluid_func import Data2Memmap
+                    dataset = Data2Memmap(y_dim=y_dim, n_jobs=logical_processor)
+                    test_data = dataset.get_paths(data_dir) # 画像のパスをリストで返す
+                    data_size = dataset.generate_memmap(test_data, 'memmap_{}'.format(os.path.basename(use_existing_data)), globals().items())
+            else:
+                data_size = mkdata(data_num, memmap_dir, y_dim) # 推論用データの作成，memmapファイルに変換
+            
+            if hasattr(data_size, '__iter__'):
+                assert len(data_size) == 1 # data_size 内の要素が1つでなければエラー
+                data_size = data_size[0]
+            am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
 
             # 推論結果を保存するテキストデータを作成
-            write_txt(os.path.join(save_predict_result), 'a', '{} {} {}\n'.format(i, output_mean, output_variance))
+            write_txt(os.path.join(save_predict_dir, '{}.txt'.format(data_dir)), 'w',
+                    '# モデル数：{}\n'.format(model_num) +
+                    '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
+                    '# 推論したデータのパス：{}\n'.format(memmap_dir if memmap_dir.startswith('C:') else '..\{}'.format(memmap_dir)) +
+                    '# 番号     平均     分散     \n')
+            
+            for i in range(data_size):
+                # 入力データの取得
+                X_MEMMAP_NAME = 'x_test_data'
+                X = np.memmap(filename=os.path.join(memmap_dir, '{}.npy'.format(X_MEMMAP_NAME)), 
+                            dtype=np.float32, 
+                            mode='r',
+                            shape=(data_size, 32, 32, 2)
+                            )
+                input_data = [np.expand_dims(X[i,:,:,0], 0), np.expand_dims(X[i,:,:,1], 0)]
+                #  shape =            (1,32,32),                      (1,32,32)
+
+                output_list = [] # 出力を入れる空のリストを作成
+                for predict_model in models_list:
+                    predict_model.summary()
+                    history = predict_model.predict(x=input_data)
+                    output_list.append(history) # 出力をリストに追加
+                output_array = np.array(output_list) # リストを配列に変換
+                # output_array.shape = (推論したモデルの数，出力の数)
+                assert isinstance(output_array, np.ndarray) # 配列に変換できない場合はエラー
+                # 平均の計算
+                # 移動距離の計算，move_distance = √(u_x^2 + u_y^2 + u_z^2)
+                move_distance = np.sqrt(np.sum(np.square(output_array),-1).reshape(-1,1))
+                output_mean = np.mean(move_distance)
+                # 分散の計算，variance = 1/n * Σ(y-y_mean)^2
+                output_variance = np.var(move_distance)
+
+                # 推論結果を保存するテキストデータを作成
+                write_txt(os.path.join(save_predict_dir, '{}.txt'.format(data_dir)), 'a', '{} {} {}\n'.format(i, output_mean, output_variance))
