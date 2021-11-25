@@ -30,3 +30,8 @@ def remake_dir(dir_name):
     if os.path.exists(dir_name):
         shutil.rmtree(dir_name)
     os.mkdir(dir_name)
+
+# 書き込み専用の関数，mode は 'w'か'a'
+def write_txt(file_name, mode, contents):
+    with open(file_name, mode=mode) as f:
+        f.write(contents)

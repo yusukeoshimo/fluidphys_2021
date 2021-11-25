@@ -8,7 +8,7 @@ import os
 import numpy as np
 import time
 
-from convenient import input_str, input_int, input_float, remake_dir
+from convenient import input_str, input_int, input_float, remake_dir, write_txt
 from read_data import memmap_datanum, recursive_data_processing
 
 def check_output_axis(output_num):
@@ -24,12 +24,6 @@ def check_output_axis(output_num):
         assert isinstance(output_axis, int) # output_axis がint型になってなければエラー
         return output_axis
     return None
-
-# 書き込み専用の関数，mode は 'w'か'a'
-def write_txt(file_name, mode, contents):
-    with open(file_name, mode=mode) as f:
-        f.write(contents)
-
 
 if __name__ == '__main__':
     # カレントディレクトリの取得
