@@ -6,9 +6,11 @@
 import sys
 import os
 import numpy as np
+from glob import glob
 import time
 
 from read_data import get_calibration_info
+from convenient import input_str
 
 if __name__ == '__main__':
     cwd = os.getcwd() # カレントディレクトリの取得
@@ -28,6 +30,15 @@ if __name__ == '__main__':
             movie = sys.argv[i]
         i +=1
     
+    if interactive_mode:
+        movie = input_str('校正する動画を指定してください．複数の場合はディレクトリを指定してください．>> ')
+        assert os.path.exists(movie_path) # 指定したパスがなければエラー
+
     # 校正の情報が入ったファイルのパスを取得
     calibration_info = get_calibration_info()
+    # 投影関数（関数オブジェクト），投影関数の係数（リスト型）を取得
+    projection_func, projection_func_coef = mk_projection_func(calibration_info)
+
+    # 動画のパスを取得（型はリスト）
+    movie_path = get_movie_path(movie)
     
