@@ -5,9 +5,10 @@
 
 import sys
 import os
-from glob import glob
 import numpy as np
 import time
+
+from read_data import get_calibration_info
 
 if __name__ == '__main__':
     cwd = os.getcwd() # カレントディレクトリの取得
@@ -29,6 +30,6 @@ if __name__ == '__main__':
     
 
     # 校正の情報が入ったファイルのリストを取得
-    calibration_info_list = glob(os.path.join('**', 'Calibration.cal'), recursive=True)
-    assert calibration_info_list == 1 # ファイルが2以上あったらエラー
-    calibration_info = calibration_info_list[0]
+    calibration_info = get_calibration_info()
+
+    
