@@ -68,13 +68,12 @@ def mk_projection_func(calibration_info):
                 phys2img_x.append(value[0]*x**x_index*y**y_index)
                 phys2img_y.append(value[1]*x**x_index*y**y_index)
         return sum(img2phys_x), sum(img2phys_y), sum(phys2img_x), sum(phys2img_y)
-    return projection_func #, projection_func_coef # 確認時使用
+    return projection_func, projection_func_coef
 
 if __name__ == '__main__':
     from read_data import get_calibration_info
     calibration_info = get_calibration_info()
-    projection_func = mk_projection_func(calibration_info)
-    # projection_func, projection_func_coef = mk_projection_func(calibration_info) # 確認時使用
+    projection_func, projection_func_coef = mk_projection_func(calibration_info)
 
     from convenient import input_str
     x, y = [ int(i) for i in input_str('移動させる座標を指定してください．（ x, y ）>> ').strip().split(',')]
