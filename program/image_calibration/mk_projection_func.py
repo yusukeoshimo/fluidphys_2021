@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-11-26 13:34:53
-# processing_data.py
+# 2021-11-26 13:40:26
+# mk_projection_func.py
+
+from read_data import read_text_data
 
 # 投影関数の係数を取得
 def get_projection_func_coef(calibration_info):
