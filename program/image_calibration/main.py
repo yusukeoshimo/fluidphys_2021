@@ -28,8 +28,6 @@ if __name__ == '__main__':
             movie = sys.argv[i]
         i +=1
     
-
-    # 校正の情報が入ったファイルのリストを取得
+    # 校正の情報が入ったファイルのパスを取得
     calibration_info = get_calibration_info()
-
     
