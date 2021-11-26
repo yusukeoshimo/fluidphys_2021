@@ -3,12 +3,6 @@
 # 2021-11-26 13:34:53
 # processing_data.py
 
-def read_text_data(text, search_word, split_str):
-    with open(calibration_info, 'r') as f: # 読み取りモード
-        for line in f: # 1行ずつ読む
-            if line.strip().lower().startswith(search_word):
-                return line.strip().split(split_str)[-1]
-
 # 投影関数の係数を取得
 def get_projection_func_coef(calibration_info):
     projection_func_coef = [] # 空のリスト
@@ -25,7 +19,6 @@ def get_projection_func_coef(calibration_info):
             projection_func_coef.remove([0.0, 0.0])
     except:
         return projection_func_coef
-
 
 # 投影関数
 def mk_projection_func(calibration_info):
