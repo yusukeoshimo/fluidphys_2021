@@ -5,6 +5,8 @@
 
 import os
 from glob import glob
+import numpy as np
+import matplotlib.pyplot as plt
 import cv2
 
 # 校正の情報が入ったファイルのパスを取得
@@ -19,22 +21,40 @@ def read_text_data(text, search_word, split_str):
             if line.strip().lower().startswith(search_word):
                 return line.strip().split(split_str)[-1]
 
-def load_movie(movie_path):
-    movie_file = cv2.VideoCapture(movie_path)
-    assert movie_file.isOpened() # 動画ファイルを読み込めていなければエラー
-    return movie_file
+def load_video(video_path):
+    video_file = cv2.VideoCapture(video_path)
+    assert video_file.isOpened() # 動画ファイルを読み込めていなければエラー
+    return video_file
 
-def get_movie_path(movie):
-    if os.path.isfile(movie): # ファイルかどうか確認
-        movie_path = [movie] # リスト型
+def get_video_path(video):
+    if os.path.isfile(video): # ファイルかどうか確認
+        video_path = [video] # リスト型
     else:
-        movie_path = []
+        video_path = []
         # ファイルだけを再帰的に取得
         file_paths = [f for f in glob(os.path.join('**', '*'), recursive=True) if os.path.isfile(f)]
         for file_path in file_paths:
             try:
-                load_movie(file_path).release() # 動画を閉じる．
-                movie_path.append(file_path)
+                load_video(file_path).release() # 動画を閉じる．
+                video_path.append(file_path)
             except:
                 pass
-    return movie_path
+    return video_path
+
+# 画像をnumpy配列で読み出す関数，掲示板参照
+def read_image(file_name, flags = cv2.IMREAD_GRAYSCALE, resize = None, show = False):
+    # flags = cv2.IMREAD_COLOR | cv2.IMREAD_GRAYSCALE | ...
+    # (see https://docs.opencv.org/4.2.0/d4/da8/group__imgcodecs.html#ga61d9b0126a3e57d9277ac48327799c80)
+    im = cv2.imread(file_name, flags)
+    if flags == cv2.IMREAD_COLOR:
+        im = im[:, :, (2, 1, 0)] # BGR -> RGB
+    if resize is not None:
+        if type(resize[0]) is int and type(resize[1]) is int:
+            im = cv2.resize(im, dsize = resize)
+        else:
+            im = cv2.resize(im, dsize = None, fx = resize[0], fy = resize[1])
+    if show:
+        plt.clf()
+        plt.imshow(im)
+        plt.show()
+    return im

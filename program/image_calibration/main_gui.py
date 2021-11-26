@@ -258,12 +258,12 @@ if __name__ == '__main__':
 # ウィジェット，フレーム（校正する動画の選択）の作成
     text = '校正する動画の選択'
     # button_frm 用のボタン
-    set_movie_btn = tk.Button(button_frm, text=text, relief=tk.FLAT) # ボタンの作成
-    set_movie_btn.bind('<1>', raise_frm) # ボタンを左クリックしたときの動作
-    button_frm_list.append(set_movie_btn)
+    set_video_btn = tk.Button(button_frm, text=text, relief=tk.FLAT) # ボタンの作成
+    set_video_btn.bind('<1>', raise_frm) # ボタンを左クリックしたときの動作
+    button_frm_list.append(set_video_btn)
 
     # フレームの作成
-    set_movie_frm = tk.LabelFrame(pw, text=text)
+    set_video_frm = tk.LabelFrame(pw, text=text)
 
     # # ウィジェット（フォルダ名）
     # folder_label = tk.Label(main_frm, text='フォルダ指定')
