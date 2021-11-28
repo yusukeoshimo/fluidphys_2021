@@ -255,6 +255,16 @@ if __name__ == '__main__':
     for row in range(row_count):
         get_projection_func_frm.grid_rowconfigure(row, minsize=10)
 
+# ウィジェット，フレーム（お試し校正）の作成
+    text = 'お試し校正'
+    # button_frm 用のボタン
+    trial_calibration_btn = tk.Button(button_frm, text=text, relief=tk.FLAT) # ボタンの作成
+    trial_calibration_btn.bind('<1>', raise_frm) # ボタンを左クリックしたときの動作
+    button_frm_list.append(trial_calibration_btn)
+
+    # フレームの作成
+    trial_calibration_frm = tk.LabelFrame(pw, text=text)
+
 # ウィジェット，フレーム（校正する動画の選択）の作成
     text = '校正する動画の選択'
     # button_frm 用のボタン

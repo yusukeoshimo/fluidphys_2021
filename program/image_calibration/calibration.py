@@ -46,22 +46,64 @@ def calibration_image(frame, projection_func):
     phys_y_min = np.min(phys_y)
     phys_y = (phys_y - phys_y_min)/(phys_y_max-phys_y_min) * height
 
-
-    # 輝度の補間関数を生成
-    # LinearNDInterpolator(points, values)
-    #                    points   |     values
-    #                  [[x0, y0]  | [[luminance_0],
-    #                   [x1, y1]  |  [luminance_1],
-    #                   [x2, y2]  |  [luminance_2],
-    #                   ...    ,  |  ...          ,
-    #                   [xm, ym]] |  [luminance_m]]
-    #                                              
-    luminance_interpolation_func = LinearNDInterpolator(np.hstack((phys_x, phys_y)), frame)
-    
-    # 補間用の座標を作成
-    x_array = (np.arange(width)*(np.ones(height).reshape(-1,1))).reshape(-1,1)
-    y_array = ((np.arange(height).reshape(-1,1))*np.ones(width)).reshape(-1,1)
-    return luminance_interpolation_func(np.hstack((x_array, y_array))).reshape((height, width) if grayscale else (height, width, 3))
+    if use_interploator:
+        # 輝度の補間関数を生成
+        # LinearNDInterpolator(points, values)
+        #                    points   |     values
+        #                  [[x0, y0]  | [[luminance_0],
+        #                   [x1, y1]  |  [luminance_1],
+        #                   [x2, y2]  |  [luminance_2],
+        #                   ...    ,  |  ...          ,
+        #                   [xm, ym]] |  [luminance_m]]
+        #                                              
+        luminance_interpolation_func = LinearNDInterpolator(np.hstack((phys_x, phys_y)), frame)
+        
+        # 補間用の座標を作成
+        x_array = (np.arange(width)*(np.ones(height).reshape(-1,1))).reshape(-1,1)
+        y_array = ((np.arange(height).reshape(-1,1))*np.ones(width)).reshape(-1,1)
+        return luminance_interpolation_func(np.hstack((x_array, y_array))).reshape((height, width) if grayscale else (height, width, 3))
+    else:
+        # 要素が 0 の配列の作成
+        calibrated_frame = np.zeros((height, width) if grayscale else (height, width, 3))
+        
+        # グレースケールの場合
+        # ndarray : shape(height, width)
+        #                   <----------------- width ----------------->
+        #            ^     [[輝度00, 輝度01, 輝度02, 輝度03, ..., 輝度0n],
+        #            |      [輝度10, 輝度11, 輝度12, 輝度13, ..., 輝度1n],
+        #            |      [輝度20, 輝度21, 輝度22, 輝度23, ..., 輝度2n],
+        #          height   [輝度30, 輝度31, 輝度32, 輝度33, ..., 輝度1n],
+        #            |       ...                                       ,
+        #            v      [輝度m0, 輝度m1, 輝度m2, 輝度m3, ..., 輝度mn]]
+        #
+        # カラースケールの場合
+        # ndarray : shape(height, width, depth = 3(カラースケールの場合))
+        #                     <-------- depth ------->
+        #        ^     ^   [[[輝度000, 輝度001, 輝度002],
+        #        |     |     [輝度010, 輝度011, 輝度012],
+        #        |     |     [輝度020, 輝度021, 輝度022],
+        #        |   width   [輝度030, 輝度031, 輝度032],
+        #        |     |      ...                      ,
+        #        |     v     [輝度0n0, 輝度0n1, 輝度0n2]],
+        #        |          
+        #        |          [[輝度100, 輝度101, 輝度102],
+        #        |           [輝度110, 輝度111, 輝度112],
+        #        |           [輝度120, 輝度121, 輝度122],
+        #      height        [輝度130, 輝度131, 輝度132],
+        #        |            ...                      ,
+        #        |           [輝度1n0, 輝度1n1, 輝度1n2]],
+        #        |          
+        #        |           ...                        ,
+        #        |          
+        #        |          [[輝度m00, 輝度m01, 輝度m02],
+        #        |           [輝度m10, 輝度m11, 輝度m12],
+        #        |           [輝度m20, 輝度m21, 輝度m22],
+        #        |           [輝度m30, 輝度m31, 輝度m32],
+        #        |            ...                      ,
+        #        v           [輝度mn0, 輝度mn1, 輝度mn2]]]
+        #
+        calibrated_frame[(phys_y, phys_x) if grayscale else (phys_y, phys_x, :)] = frame.reshape((height, width) if grayscale else (height, width, 3))
+        return calibrated_frame
 
 # 読み込んだ動画をもとに新しい動画ファイルを作成
 def mk_writer(path, video_savedir):
