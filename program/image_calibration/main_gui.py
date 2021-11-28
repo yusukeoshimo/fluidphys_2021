@@ -14,11 +14,15 @@ import subprocess
 from read_data import get_calibration_info
 from mk_projection_func import mk_projection_func
 
-def ask_folder():
-    ''' 参照ボタンの動作
-    '''
+# 解析ディレクトリの指定
+def ask_cwd():
     path = filedialog.askdirectory()
     cwd.set(path)
+
+# お試しで校正するファイルの指定
+def ask_trial_file():
+    path = filedialog.askopenfilename()
+    trial_file.set(path)
 
 def chdir():
     os.chdir(cwd.get())
@@ -161,7 +165,7 @@ if __name__ == '__main__':
     # メインウィンドウ
     main_win = tk.Tk()
     main_win.title('動画を校正する（現在の解析ディレクトリ：{}）'.format(cwd))
-    main_win.geometry('1000x400')
+    main_win.geometry('800x800')
 
     # ペインドウィンドウの生成
     pw = tk.PanedWindow(main_win, sashrelief = tk.RAISED, sashwidth = 4)
@@ -170,6 +174,7 @@ if __name__ == '__main__':
 # パラメータ
     cwd = tk.StringVar() # 解析ディレクトリ
     calibration_files = tk.StringVar() # キャリブレーション結果のファイル，複数の場合はlist型
+    trial_file = tk.StringVar() # お試しで構成する画像，動画
     # folder_path = tk.StringVar()
 
  # ボタンフレーム
@@ -190,7 +195,7 @@ if __name__ == '__main__':
     # ウィジェット作成（解析ディレクトリ指定用）
     chdir_label = tk.Label(chdir_frm, text='解析ディレクトリ指定')
     chdir_box = tk.Entry(chdir_frm, textvariable=cwd)
-    chdir_btn = tk.Button(chdir_frm, text='参照', command=ask_folder)
+    chdir_btn = tk.Button(chdir_frm, text='参照', command=ask_cwd)
 
     # ウィジェット作成（実行ボタン）
     app_chdir_btn = ttk.Button(chdir_frm, text="ディレクトリの移動", command=chdir)
@@ -265,7 +270,15 @@ if __name__ == '__main__':
     # フレームの作成
     trial_calibration_frm = tk.LabelFrame(pw, text=text)
     
+    # ウィジェット作成（校正する画像，動画の指定）
+    trial_set_file_label = tk.Label(trial_calibration_frm, text='校正する画像，動画を指定')
+    trial_set_file_box = tk.Entry(trial_calibration_frm, textvariable=trial_file)
+    trial_set_file_btn = tk.Button(trial_calibration_frm, text='参照', command=ask_trial_file)
     
+    # ウィジェットの配置
+    trial_set_file_label.grid(column=0, row=0, pady=10)
+    trial_set_file_box.grid(column=1, row=0, sticky=tk.EW, padx=5)
+    trial_set_file_btn.grid(column=2, row=0, padx=5, pady=5)
 
 # ウィジェット，フレーム（校正する動画の選択）の作成
     text = '校正する動画の選択'
