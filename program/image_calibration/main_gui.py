@@ -9,10 +9,10 @@ from tkinter import filedialog
 import sys
 import os
 from glob import glob
-import subprocess
 
 from read_data import get_calibration_info
 from mk_projection_func import mk_projection_func
+from convenient import open_file
 
 # 解析ディレクトリの指定
 def ask_cwd():
@@ -62,12 +62,11 @@ def selection_listbox(listbox):
 # テキストエディターで開く
 def open_calibration_file():
     calibration_file = selection_listbox(calibration_files_listbox)
-    if sys.platform == 'win32':
-            os.startfile(calibration_file) # ファイルに関連付けされたアプリで開く
-    elif sys.platform == 'darwin':
-        subprocess.call(u'open "%s"' % calibration_file, shell = True)
-    else:
-        subprocess.call(u'xdg-open "%s"' % calibration_file, shell = True)
+    open_file(calibration_file)
+
+# お試しファイルを開く
+def open_trial_file():
+    open_file(trial_file.get())
 
 def mk_projection_func_view(projection_func_coef):
     # 係数の数から次数を逆算
@@ -153,9 +152,6 @@ def mk_projection_func_and_view():
     img2phys_y_textbox.configure(state='disabled')
     phys2img_x_textbox.configure(state='disabled')
     phys2img_y_textbox.configure(state='disabled')
-
-
-
 
 if __name__ == '__main__':
     cwd = os.getcwd()
@@ -271,14 +267,19 @@ if __name__ == '__main__':
     trial_calibration_frm = tk.LabelFrame(pw, text=text)
     
     # ウィジェット作成（校正する画像，動画の指定）
-    trial_set_file_label = tk.Label(trial_calibration_frm, text='校正する画像，動画を指定')
-    trial_set_file_box = tk.Entry(trial_calibration_frm, textvariable=trial_file)
-    trial_set_file_btn = tk.Button(trial_calibration_frm, text='参照', command=ask_trial_file)
+    set_trial_file_label = tk.Label(trial_calibration_frm, text='校正する画像，動画を指定')
+    set_trial_file_box = tk.Entry(trial_calibration_frm, textvariable=trial_file)
+    set_trial_file_btn = tk.Button(trial_calibration_frm, text='参照', command=ask_trial_file)
+    open_trial_file_btn = tk.Button(trial_calibration_frm, text='開く', command=open_trial_file)
+    
+    # ウィジェット作成（実行ボタン）
+    app_projection_func_btn = ttk.Button(get_projection_func_frm, text="校正", command=mk_projection_func_and_view)
+    app_projection_func_btn = ttk.Button(get_projection_func_frm, text="確認", command=mk_projection_func_and_view)
     
     # ウィジェットの配置
-    trial_set_file_label.grid(column=0, row=0, pady=10)
-    trial_set_file_box.grid(column=1, row=0, sticky=tk.EW, padx=5)
-    trial_set_file_btn.grid(column=2, row=0, padx=5, pady=5)
+    set_trial_file_label.grid(column=0, row=0, pady=10)
+    set_trial_file_box.grid(column=1, row=0, sticky=tk.EW, padx=5)
+    set_trial_file_btn.grid(column=2, row=0, padx=5, pady=5)
 
 # ウィジェット，フレーム（校正する動画の選択）の作成
     text = '校正する動画の選択'
