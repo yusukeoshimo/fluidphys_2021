@@ -264,6 +264,8 @@ if __name__ == '__main__':
 
     # フレームの作成
     trial_calibration_frm = tk.LabelFrame(pw, text=text)
+    
+    
 
 # ウィジェット，フレーム（校正する動画の選択）の作成
     text = '校正する動画の選択'

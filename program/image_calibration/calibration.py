@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# 2021-11-27 00:34:34
+# 2021-11-28 16:08:39
 # calibration.py
 
 import os
@@ -102,7 +102,11 @@ def calibration_image(frame, projection_func):
         #        |            ...                      ,
         #        v           [輝度mn0, 輝度mn1, 輝度mn2]]]
         #
-        calibrated_frame[(np.round(phys_y), np.round(phys_x)) if grayscale else (np.round(phys_y), np.round(phys_x), :)] = frame.reshape((height, width) if grayscale else (height, width, 3))
+        # 座標配列の要素を整数型に変更
+        phys_x = np.round(phys_x).astype('int32')
+        phys_y = np.round(phys_y).astype('int32')
+        # 校正後の画像を作成
+        calibrated_frame[(phys_y, phys_x) if grayscale else (phys_y, phys_x, :)] = frame.reshape((height, width) if grayscale else (height, width, 3))
         return calibrated_frame
 
 # 読み込んだ動画をもとに新しい動画ファイルを作成
