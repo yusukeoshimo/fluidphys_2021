@@ -138,12 +138,13 @@ if __name__ == '__main__':
 
     # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     y_dim = 3 # 変位の次元数
-    memmap_dir = 'memmap_' + str(data_num) # デフォルトでmemmapを保存するディレクトリ
+    memmap_dir = 'memmap_{}'.format(data_num if use_existing_data else data_num) # デフォルトでmemmapを保存するディレクトリ
     save_predict_result = 'predict_result' # 推論結果を保存するファイル
     save_learning_result = 'learning_result' # 学習結果を保存するディレクトリ
     learning_time_save = os.path.join(save_learning_result, 'learning_time.txt') # 学習時間を保存するファイルのパス
     split_everything_to_train_validation = 0.2 # 8:2，訓練データ:検証データ
     split_rate = [split_everything_to_train_validation]
+    logical_processor = 10 # 並列処理を行う際のスレッド数
     # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     
     from model_train import model_train, calc_am
@@ -218,7 +219,7 @@ if __name__ == '__main__':
         assert len(models_list) != 0 # 推論用モデルがなければエラー
 
         if use_existing_data:
-            data_dir_list = recursive_data_processing(existing_data_dir)
+            data_dir_list = list(set(recursive_data_processing(existing_data_dir)))
         else:
             data_dir_list = ['make_predict_data']
         for data_dir in data_dir_list:
@@ -229,10 +230,12 @@ if __name__ == '__main__':
                 if any(['.npy' in i for i in os.listdir(data_dir)]):
                     data_size = memmap_datanum(data_dir, y_dim, output_num, output_axis)
                 else:
+                    memmap_path = os.path.join(memmap_dir, os.path.basename(data_dir))
+                    remake_dir(memmap_path)
                     from particle_image_with_fluid_func import Data2Memmap
                     dataset = Data2Memmap(y_dim=y_dim, n_jobs=logical_processor)
                     test_data = dataset.get_paths(data_dir) # 画像のパスをリストで返す
-                    data_size = dataset.generate_memmap(test_data, 'memmap_{}'.format(os.path.basename(use_existing_data)), globals().items())
+                    data_size = dataset.generate_memmap(test_data, memmap_path, globals().items())
             else:
                 data_size = mkdata(data_num, memmap_dir, y_dim) # 推論用データの作成，memmapファイルに変換
             

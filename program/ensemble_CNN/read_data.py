@@ -3,6 +3,7 @@
 # 2021-10-25 13:57:25
 # read_data.py
 
+import os
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,7 +27,7 @@ def read_image(file_name, flags = cv2.IMREAD_GRAYSCALE, resize = None, show = Fa
     return im
 
 # テキストファイルから入力データ，出力データを取り出す関数，掲示板参照
-def get_input_output_from_file(file_name, top_skip = 0, input_columns = (0,), output_columns = (1,),
+def get_input_output_from_file(file_name, skip_word = None, input_columns = (0,), output_columns = (1,),
     delimiter = None, encoding = 'UTF-8'):
     # encoding = 'UTF-8' | 'CP932'
     if input_columns is None:
@@ -40,9 +41,9 @@ def get_input_output_from_file(file_name, top_skip = 0, input_columns = (0,), ou
     input = []
     output = []
     with open(file_name, 'r', encoding = encoding) as f:
-        for i in range(top_skip):
-            next(f)
         for line in f:
+            if line.strip().startswith(skip_word):
+                continue
             line = line.split(delimiter)
             input.append([float(line[i]) for i in input_columns])
             output.append([float(line[i]) for i in output_columns])
@@ -80,10 +81,14 @@ def recursive_data_processing(data_dir):
     data_dir_list = [] # 空のリスト
     for i in os.listdir(data_dir):
         i = os.path.join(data_dir,i) # i にディレクトリ部分のパスをつける
+        try:
+            assert os.path.isdir(i) # ディレクトリがあるか確認
+        except:
+            continue
         if len(os.listdir(i)) == 0:
             continue # 空のディレクトリの場合は無視
         elif 'png' in os.listdir(i)[0]:
-            data_dir_list.append(i) # 画像ファイルの場合はパスをリストに追加
+            data_dir_list.append(os.path.dirname(i)) # 画像ファイルの場合はパスをリストに追加
         elif any(['.npy' in i for i in os.listdir(i)]):
             data_dir_list.append(i) # memmapファイルの場合はパスをリストに追加
         else:

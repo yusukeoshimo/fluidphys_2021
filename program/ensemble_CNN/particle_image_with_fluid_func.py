@@ -193,7 +193,7 @@ class Data2Memmap:
             all_input_paths.extend(input_paths)
             del input_paths
         output_path = glob(os.path.join(dir_name,'**', 'dataset_output.txt'), recursive=True)[0]
-        output_data = get_input_output_from_file(output_path, top_skip = 1, input_columns = None, output_columns = range(self.y_dim), delimiter = None, encoding = 'UTF-8')
+        output_data = get_input_output_from_file(output_path, skip_word = '#', input_columns = None, output_columns = range(self.y_dim), delimiter = None, encoding = 'UTF-8')
         data_set = [[a, b] for a, b in zip(all_input_paths, output_data.tolist())]
         # data_setはリスト，中もリスト
         # data_set:[[[origin_0_0.png, next_0_0.png], [v_x0, v_y0]]
