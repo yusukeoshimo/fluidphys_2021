@@ -105,6 +105,4 @@ def calc_am(memmap_dir, y_dim, output_num, output_axis):
                 y_memmap = read_ymemmap(filename=os.path.join(memmap_dir, i), y_dim=y_dim, output_num=output_num, output_axis=output_axis)
                 test_am = np.mean(np.mean(np.abs(y_memmap),axis=-1))
                 am_dict['test_am'] = test_am
-    del y_memmap
-    gc.collect()
     return am_dict

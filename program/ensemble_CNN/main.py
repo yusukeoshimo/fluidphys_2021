@@ -43,43 +43,46 @@ if __name__ == '__main__':
     model_dir = None # 推論時に使うモデルのディレクトリ
 
     i = 1
-    while i < len(sys.argv):
-        interactive_mode = False
-        if sys.argv[i].lower().startswith('-h'): # ヘルプの表示
-            print(u'使い方: python {}'.format(os.path.basename(sys.argv[0])) +
-                  u' -m[odel] model_path .... \n' +
-                  u'---- オプション ----\n' +
-                  u'-m[odel] model_path                    -> アンサンブル学習に使うモデルを model_path で指定．\n' +
-                  u'-d[ata_number] data_num                -> 学習またはテストに使うデータ数を data_num で指定．\n' +
-                  u'-l[earning] model_num                  -> アンサンブル学習の実行．学習に使うモデル数を model_num で指定．\n' +
-                  u'-p[redict] [model_dir] [existing_data] -> 推論を実行．推論に使うモデル群を model_dir で指定．\n' +
-                  u'                                          学習と推論を連続で行いたいときは，model_dir を指定しない．\n' +
-                  u'                                          推論時に既存のデータを指定する場合 existing_data で指定．\n' +
-                  u'-h[elp]                                -> ヘルプの表示．\n'
-                  )
-            sys.exit(0) # 正常終了, https://www.sejuku.net/blog/24331
-        if sys.argv[i].lower().startswith('-m'): # ロードするモデルの指定
-            i += 1
-            model_path = sys.argv[i]
-        elif sys.argv[i].lower().startswith('-d'): # データ数の指定
-            i += 1
-            data_num = int(sys.argv[i])
-        elif sys.argv[i].lower().startswith('-l'): # モデルの学習を行う
-            model_learning = True
-            i += 1
-            model_num = int(sys.argv[i])
-        elif sys.argv[i].lower().startswith('-p'): # モデルによる推論を行う
-            model_predict = True
-            i += 1
-            while not sys.argv[i].startswith('-'):
-                if '.h5' in os.listdir(sys.argv[i])[0]:
-                    model_dir = sys.argv[i]
-                elif os.path.isdir(sys.argv[i]):
-                    use_existing_data = True
-                    existing_data_dir = sys.argv[i]
+    try:
+        while i < len(sys.argv):
+            interactive_mode = False
+            if sys.argv[i].lower().startswith('-h'): # ヘルプの表示
+                print(u'使い方: python {}'.format(os.path.basename(sys.argv[0])) +
+                      u' -m[odel] model_path .... \n' +
+                      u'---- オプション ----\n' +
+                      u'-m[odel] model_path                    -> アンサンブル学習に使うモデルを model_path で指定．\n' +
+                      u'-d[ata_number] data_num                -> 学習またはテストに使うデータ数を data_num で指定．\n' +
+                      u'-l[earning] model_num                  -> アンサンブル学習の実行．学習に使うモデル数を model_num で指定．\n' +
+                      u'-p[redict] [model_dir] [existing_data] -> 推論を実行．推論に使うモデル群を model_dir で指定．\n' +
+                      u'                                          学習と推論を連続で行いたいときは，model_dir を指定しない．\n' +
+                      u'                                          推論時に既存のデータを指定する場合 existing_data で指定．\n' +
+                      u'-h[elp]                                -> ヘルプの表示．\n'
+                      )
+                sys.exit(0) # 正常終了, https://www.sejuku.net/blog/24331
+            if sys.argv[i].lower().startswith('-m'): # ロードするモデルの指定
                 i += 1
-            i -= 1
-        i += 1
+                model_path = sys.argv[i]
+            elif sys.argv[i].lower().startswith('-d'): # データ数の指定
+                i += 1
+                data_num = int(sys.argv[i])
+            elif sys.argv[i].lower().startswith('-l'): # モデルの学習を行う
+                model_learning = True
+                i += 1
+                model_num = int(sys.argv[i])
+            elif sys.argv[i].lower().startswith('-p'): # モデルによる推論を行う
+                model_predict = True
+                i += 1
+                while not sys.argv[i].startswith('-'):
+                    if '.h5' in os.listdir(sys.argv[i])[0]:
+                        model_dir = sys.argv[i]
+                    elif os.path.isdir(sys.argv[i]):
+                        use_existing_data = True
+                        existing_data_dir = sys.argv[i]
+                    i += 1
+                i -= 1
+            i += 1
+    except:
+        pass
 
     # 実行方法（学習／推論）の指定．インタラクティブまたは，指定していないとき．
     if interactive_mode and not (model_learning or model_predict):
@@ -101,7 +104,7 @@ if __name__ == '__main__':
         assert os.path.exists(model_dir) # ファイルが存在していない場合エラー
 
     # 推論時に既存のデータを使うか，使うならばそのディレクトリの指定
-    if data_num is None and model_predict:
+    if data_num is None and model_predict and not use_existing_data:
         if input_str('既存のデータセットを使用しますか？ y or n >>').lower().startswith('y'):
             use_existing_data = True
             existing_data_dir = input_str('推論時に使うデータのディレクトリを指定してください．>> ')
@@ -124,8 +127,9 @@ if __name__ == '__main__':
     if model_dir is None and model_predict and model_learning: # 推論あり，学習ありの場合
         model_dir = savedir_ensemble_model
 
-    if data_num > 0.5e07: # 学習データが50万以上の場合はバッチごとにデータを読み込む
-        load_split_batch = True
+    if data_num is not None:
+        if data_num > 0.5e07: # 学習データが50万以上の場合はバッチごとにデータを読み込む
+            load_split_batch = True
 
     import tensorflow as tf
     from model_operation import model_load, reset_weights
@@ -145,7 +149,7 @@ if __name__ == '__main__':
 
     # ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ ^ 
     y_dim = 3 # 変位の次元数
-    memmap_dir = 'memmap_{}'.format(data_num if use_existing_data else data_num) # デフォルトでmemmapを保存するディレクトリ
+    memmap_dir = 'memmap_{}'.format(os.path.basename(existing_data_dir) if use_existing_data else data_num) # デフォルトでmemmapを保存するディレクトリ
     save_predict_result = 'predict_result' # 推論結果を保存するファイル
     save_learning_result = 'learning_result' # 学習結果を保存するディレクトリ
     learning_time_save = os.path.join(save_learning_result, 'learning_time.txt') # 学習時間を保存するファイルのパス
@@ -159,6 +163,7 @@ if __name__ == '__main__':
     from particle_image_with_fluid_func import mkdata
 
     if model_learning:
+        remake_dir(memmap_dir)
         remake_dir(savedir_ensemble_model)
         remake_dir(save_learning_result)
 
@@ -216,6 +221,7 @@ if __name__ == '__main__':
         write_txt(learning_time_save, 'a', 'average time : {}\n'.format(learning_time_mean))
     
     if model_predict:
+        remake_dir(memmap_dir)
         save_predict_dir = '{}_{}'.format(save_predict_result, os.path.basename(model_dir))
         remake_dir(save_predict_dir)
 
@@ -235,33 +241,36 @@ if __name__ == '__main__':
             # 推論時に既存データを使う場合，データ数を確認
             if use_existing_data:
                 if any(['.npy' in i for i in os.listdir(data_dir)]):
+                    memmap_path = data_dir
                     data_size = memmap_datanum(data_dir, y_dim, output_num, output_axis)
                 else:
                     memmap_path = os.path.join(memmap_dir, os.path.basename(data_dir))
+                    print(memmap_path)
                     remake_dir(memmap_path)
                     from particle_image_with_fluid_func import Data2Memmap
                     dataset = Data2Memmap(y_dim=y_dim, n_jobs=logical_processor)
                     test_data = dataset.get_paths(data_dir) # 画像のパスをリストで返す
                     data_size = dataset.generate_memmap(test_data, memmap_path, globals().items())
             else:
+                memmap_path = memmap_dir
                 data_size = mkdata(data_num, memmap_dir, y_dim) # 推論用データの作成，memmapファイルに変換
             
             if hasattr(data_size, '__iter__'):
                 assert len(data_size) == 1 # data_size 内の要素が1つでなければエラー
                 data_size = data_size[0]
-            am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
+            am_list = calc_am(memmap_path, y_dim, output_num, output_axis)
 
             # 推論結果を保存するテキストデータを作成
             write_txt(os.path.join(save_predict_dir, '{}.txt'.format(data_dir)), 'w',
                     '# モデル数：{}\n'.format(model_num) +
                     '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
-                    '# 推論したデータのパス：{}\n'.format(memmap_dir if memmap_dir.startswith('C:') else '..\{}'.format(memmap_dir)) +
+                    '# 推論したデータのパス：{}\n'.format(memmap_path if memmap_path.startswith('C:') else '..\{}'.format(memmap_path)) +
                     '# 番号     平均     分散     \n')
             
             for i in range(data_size):
                 # 入力データの取得
                 X_MEMMAP_NAME = 'x_test_data'
-                X = np.memmap(filename=os.path.join(memmap_dir, '{}.npy'.format(X_MEMMAP_NAME)), 
+                X = np.memmap(filename=os.path.join(memmap_path, '{}.npy'.format(X_MEMMAP_NAME)), 
                             dtype=np.float32, 
                             mode='r',
                             shape=(data_size, 32, 32, 2)
