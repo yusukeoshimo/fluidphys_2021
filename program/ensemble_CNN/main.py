@@ -49,12 +49,13 @@ if __name__ == '__main__':
             print(u'使い方: python {}'.format(os.path.basename(sys.argv[0])) +
                   u' -m[odel] model_path .... \n' +
                   u'---- オプション ----\n' +
-                  u'-m[odel] model_path         -> アンサンブル学習に使うモデルを model_path で指定．\n' +
-                  u'-d[ata_number] data_num     -> 学習またはテストに使うデータ数を data_num で指定．\n' +
-                  u'-l[earning] model_num       -> アンサンブル学習の実行．学習に使うモデル数を model_num で指定．\n' +
-                  u'-p[redict] [model_dir]      -> 推論を実行．推論に使うモデル群を model_dir で指定．\n' +
-                  u'                               学習と推論を連続で行いたいときは，model_dir を指定しない．\n' +
-                  u'-h[elp]                     -> ヘルプの表示．\n'
+                  u'-m[odel] model_path                    -> アンサンブル学習に使うモデルを model_path で指定．\n' +
+                  u'-d[ata_number] data_num                -> 学習またはテストに使うデータ数を data_num で指定．\n' +
+                  u'-l[earning] model_num                  -> アンサンブル学習の実行．学習に使うモデル数を model_num で指定．\n' +
+                  u'-p[redict] [model_dir] [existing_data] -> 推論を実行．推論に使うモデル群を model_dir で指定．\n' +
+                  u'                                          学習と推論を連続で行いたいときは，model_dir を指定しない．\n' +
+                  u'                                          推論時に既存のデータを指定する場合 existing_data で指定．\n' +
+                  u'-h[elp]                                -> ヘルプの表示．\n'
                   )
             sys.exit(0) # 正常終了, https://www.sejuku.net/blog/24331
         if sys.argv[i].lower().startswith('-m'): # ロードするモデルの指定
@@ -69,9 +70,15 @@ if __name__ == '__main__':
             model_num = int(sys.argv[i])
         elif sys.argv[i].lower().startswith('-p'): # モデルによる推論を行う
             model_predict = True
-            if not sys.argv[i].startswith('-'):
+            i += 1
+            while not sys.argv[i].startswith('-'):
+                if '.h5' in os.listdir(sys.argv[i])[0]:
+                    model_dir = sys.argv[i]
+                elif os.path.isdir(sys.argv[i]):
+                    use_existing_data = True
+                    existing_data_dir = sys.argv[i]
                 i += 1
-                model_dir = sys.argv[i]
+            i -= 1
         i += 1
 
     # 実行方法（学習／推論）の指定．インタラクティブまたは，指定していないとき．
