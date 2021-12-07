@@ -7,6 +7,7 @@ import sys
 import os
 import numpy as np
 import time
+from tqdm import tqdm
 
 from convenient import input_str, input_int, input_float, remake_dir, write_txt
 from read_data import memmap_datanum, recursive_data_processing
@@ -24,6 +25,15 @@ def check_output_axis(output_num):
         assert isinstance(output_axis, int) # output_axis がint型になってなければエラー
         return output_axis
     return None
+
+def number_to_alphabet(number):
+    # 1 = A, 2 = B, ..., 26 = Z, 27 = AA, 28 = AB, ...
+    number, mod = divmod(number - 1, 26)
+    a = chr(ord('A') + mod)
+    while number != 0:
+        number, mod = divmod(number - 1, 26)
+        a = chr(ord('A') + mod) + a
+    return a
 
 if __name__ == '__main__':
     # カレントディレクトリの取得
@@ -235,9 +245,9 @@ if __name__ == '__main__':
             data_dir_list = list(set(recursive_data_processing(existing_data_dir)))
         else:
             data_dir_list = ['make_predict_data']
-        for data_dir in data_dir_list:
+        for data_dir in tqdm(data_dir_list, desc='全データ数での進捗： '):
             # 推論結果を保存するテキストファイルのパス
-            save_predict_txt = os.path.join(save_predict_result)
+            save_predict_txt = '{}.txt'.format(os.path.join(save_predict_dir, os.path.basename(data_dir)))
             # 推論時に既存データを使う場合，データ数を確認
             if use_existing_data:
                 if any(['.npy' in i for i in os.listdir(data_dir)]):
@@ -261,13 +271,15 @@ if __name__ == '__main__':
             am_list = calc_am(memmap_path, y_dim, output_num, output_axis)
 
             # 推論結果を保存するテキストデータを作成
-            write_txt(os.path.join(save_predict_dir, '{}.txt'.format(data_dir)), 'w',
+            v_ave_txt = ('  '.join(['{}_av'.format(number_to_alphabet(i+24)) for i in range(output_num)]) if output_num != 1 else '{}_av'.format(number_to_alphabet(output_axis+24))).lower()
+            v_var_txt = ('  '.join(['{}_var'.format(number_to_alphabet(i+24)) for i in range(output_num)]) if output_num != 1 else '{}_var'.format(number_to_alphabet(output_axis+24))).lower()
+            write_txt(save_predict_txt, 'w',
                     '# モデル数：{}\n'.format(model_num) +
-                    '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else '..\{}'.format(model_dir)) +
-                    '# 推論したデータのパス：{}\n'.format(memmap_path if memmap_path.startswith('C:') else '..\{}'.format(memmap_path)) +
-                    '# 番号     平均     分散     \n')
+                    '# モデルのパス：{}\n'.format(model_dir if model_dir.startswith('C:') else os.path.join(cwd, model_dir)) +
+                    '# 推論したデータのパス：{}\n'.format(memmap_path if memmap_path.startswith('C:') else os.path.join(cwd, memmap_path)) +
+                    '# 番号     {}     {}     \n'.format(v_ave_txt, v_var_txt))
             
-            for i in range(data_size):
+            for i in tqdm(range(data_size), desc='1データでの推論の進捗： '):
                 # 入力データの取得
                 X_MEMMAP_NAME = 'x_test_data'
                 X = np.memmap(filename=os.path.join(memmap_path, '{}.npy'.format(X_MEMMAP_NAME)), 
@@ -280,18 +292,15 @@ if __name__ == '__main__':
 
                 output_list = [] # 出力を入れる空のリストを作成
                 for predict_model in models_list:
-                    predict_model.summary()
                     history = predict_model.predict(x=input_data)
                     output_list.append(history) # 出力をリストに追加
                 output_array = np.array(output_list) # リストを配列に変換
                 # output_array.shape = (推論したモデルの数，出力の数)
                 assert isinstance(output_array, np.ndarray) # 配列に変換できない場合はエラー
                 # 平均の計算
-                # 移動距離の計算，move_distance = √(u_x^2 + u_y^2 + u_z^2)
-                move_distance = np.sqrt(np.sum(np.square(output_array),-1).reshape(-1,1))
-                output_mean = np.mean(move_distance)
+                output_mean = [str(np.mean(output_array.reshape(-1,output_num)[:, j])) for j in range(output_num)]
                 # 分散の計算，variance = 1/n * Σ(y-y_mean)^2
-                output_variance = np.var(move_distance)
+                output_variance = [str(np.var(output_array.reshape(-1,output_num)[:, j])) for j in range(output_num)]
 
                 # 推論結果を保存するテキストデータを作成
-                write_txt(os.path.join(save_predict_dir, '{}.txt'.format(data_dir)), 'a', '{} {} {}\n'.format(i, output_mean, output_variance))
+                write_txt(save_predict_txt, 'a', '{} {} {}\n'.format(i, *['  '.join(j) for j in [output_mean, output_variance]]))
