@@ -70,27 +70,19 @@ def objective(trial):
     # Clear clutter from previous Keras session graphs.
     keras.backend.clear_session()
 
+    #Dense層の数
+    layer_num = 5
+    
     #最適化するパラメータの設定
-    
-    max_num_layer = 6 # Dense層の最大数
-    l2 = 0.0001 # L2正則化の係数
-    
     if trial._trial_id-1 == 0 and set_initial_parms: # 初期値の指定
         print(u'指定した初期値で学習を行います．')
         #各畳込み層のフィルタ数
         initial_num_filters = 191
         num_filters = trial.suggest_int('num_filters', initial_num_filters, initial_num_filters)
         
-        #Pooling層の有無，0がFalse，1がTrue
-        initial_Pooling_layer = 0
-        Pooling_layer = trial.suggest_int('Pooling_layer', initial_Pooling_layer, initial_Pooling_layer)
-        
-        #Dense層の数
-        num_layer = 5
-        
         #Dense層のユニット数
         initial_mid_units = [426, 362, 383, 304, 405]
-        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), initial_mid_units[i], initial_mid_units[i], 1)) for i in range(num_layer)]
+        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), initial_mid_units[i], initial_mid_units[i], 1)) for i in range(layer_num)]
         
         #活性化関数,leaky_relu
         initial_alpha = 0
@@ -109,18 +101,16 @@ def objective(trial):
         #各畳込み層のフィルタ数
         num_filters = trial.suggest_int('num_filters', 1, 256)
         
-        #Pooling層の有無，0がFalse，1がTrue
-        Pooling_layer = trial.suggest_int('Pooling_layer', 0, 1)
-        
-        #Dense層の数
-        num_layer = 5
-        
         #Dense層のユニット数
-        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), 1, 500, 1)) for i in range(num_layer)]
+        mid_units = [int(trial.suggest_discrete_uniform('mid_units_'+str(i), 1, 500, 1)) for i in range(layer_num)]
         
         #活性化関数,leaky_relu
         alpha = trial.suggest_uniform('alpha', 0, 5.0e-01)
         activation = LeakyReLU(alpha)
+        
+        # L2正則化
+        l2 = trial.suggest_float("l2", 1e-4, 1) # L2正則化の係数
+        kernel_regularizer = regularizers.l2(l2)
         
         #optimizer,adam
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2)
@@ -129,35 +119,50 @@ def objective(trial):
         #batch_size, 2^n, 2^10=1024
         batch_size_index = trial.suggest_int('batchsize', 6, 10)
 
-    # Pooling層を使うか使わないか
-    # if Pooling_layer == 0:
-        # Pooling_switch = 'off'
-    # elif Pooling_layer == 1:
-        # Pooling_switch = 'on'
-
     # batch_size
     batch_size = 2**batch_size_index
-
-    print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
-    input1 = Input(shape = input_shape)
-    input2 = Input(shape = input_shape)
-    # 255で割るLambdaレイヤ
-    max_luminance = 255.0 # 最大輝度数
-    preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1)/max_luminance) # expand dim, change scale
-    c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))
-    flatten_layer =  Flatten()
-    # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
-    # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
-    x1 = flatten_layer(c2d(preprocessing_layer(input1)))
-    # x1 = flatten_layer.__call__(c2d.__call__(normalize_layer.__call__(input1))) でも良い
-    # callメソッド -> https://qiita.com/ko-da-k/items/439d8cc3a0424c45214a
-    x2 = flatten_layer(c2d(preprocessing_layer(input2)))
-    x = Concatenate()([x1, x2])
-    for i in range(num_layer):
-        x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=regularizers.l2(l2))(x)
-    output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=regularizers.l2(l2))(x)
-    model = tf.keras.Model(inputs = [input1, input2], outputs = output)
-    model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
+    if input_num == 1:
+        if use_Depthwise:
+            conv2D_layer = (DepthwiseConv2D, dict(kernel_size=16, strides=8, padding='valid', depth_multiplier=num_filters, activation=activation, depthwise_initializer='glorot_normal', input_shape=(32,32,2)))
+        else:
+            conv2D_layer = (Conv2D, num_filters, dict(kernel_size=16, strides=8, padding='valid', activation=activation, kernel_initializer='glorot_normal', input_shape=(32,32,2)))
+        Dense_layer = [] # 空のリスト
+        for i in range(layer_num):
+            Dense_layer.append((Dense, mid_units[i], dict(activation=activation, kernel_initializer='glorot_normal', kernel_regularizer=kernel_regularizer)))
+        layers = (conv2D_layer,
+                  (Flatten),
+                  *Dense_layer,
+                  (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=kernel_regularizer)),
+                  )
+        from my_model import my_sequential_model_builder
+        model = my_sequential_model_builder(layers=layers, optimizer=OPTIMIZER, loss='mae', metrics='mape')
+    elif input_num == 2:
+        print(u'functional APIモデルによる学習を行います． outputの数：%d' % output_num)
+        input1 = Input(shape = input_shape)
+        input2 = Input(shape = input_shape)
+        # 255で割るLambdaレイヤ
+        max_luminance = 255.0 # 最大輝度数
+        preprocessing_layer = Lambda(lambda x: tf.expand_dims(x, axis = -1)/max_luminance) # expand dim, change scale
+        flatten_layer =  Flatten()
+        if use_CopyWeights:
+            c2d1 = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=kernel_regularizer)
+            c2d2 = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=kernel_regularizer)
+            # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
+            # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
+            x1 = flatten_layer(c2d1(preprocessing_layer(input1)))
+            x2 = flatten_layer(c2d2(preprocessing_layer(input2)))
+        else:
+            c2d = Conv2D(filters = num_filters, kernel_size = 16, strides=8, padding='valid', activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=kernel_regularizer)
+            # c2d.get_weights()[0]: weights, shape = (H, W, C, F)
+            # c2d.get_weights()[1]: bias, shape = (F,), only in the case that use_bias is True
+            x1 = flatten_layer(c2d(preprocessing_layer(input1)))
+            x2 = flatten_layer(c2d(preprocessing_layer(input2)))
+        x = Concatenate()([x1, x2])
+        for i in range(layer_num):
+            x = Dense(units = mid_units[i], activation = activation, kernel_initializer='glorot_normal', kernel_regularizer=kernel_regularizer)(x)
+        output = Dense(units = output_num, activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=kernel_regularizer)(x)
+        model = tf.keras.Model(inputs = [input1, input2], outputs = output)
+        model.compile(optimizer = OPTIMIZER, loss = ['mae'], metrics = ['MAPE'])
     model.summary()
     
     #callbacksの設定
