@@ -4,7 +4,7 @@
 # main.py
 
 #---- オプション ----
-#-d[irectory] dir_path         -> 訓練データがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可
+#-d[irectory] dir_path         -> データセットがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可
 #-r[emove]                     -> 最適化の前回までのデータがある場合，それを消す．
 #-b[atch]                      -> 訓練データをバッチごとに読み込む．
 #-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．
@@ -65,6 +65,7 @@ from my_model import model_train, calc_am
 from my_callbacks import LossHistory, CopyWeights
 from monte_carlo_dropout import restudy_by_monte_carlo_dropout
 from convenient import input_float, input_int, input_str
+from particle_image_with_fluid_func import mkdata
 
 def objective(trial):
     # Clear clutter from previous Keras session graphs.
@@ -209,7 +210,7 @@ def objective(trial):
 if __name__ == '__main__':
     # if文判定用のフラグ
     interactive_mode = True # インタラクティブかどうか
-    data_determination = False # 訓練データを指定しているか
+    data_determination = False # データセットを指定しているか
     use_memmap = False # memmapファイルを使うか
     reset_optimize = False # 前回の最適化データを消去するか
     load_split_batch = False # バッチごとにデータを読み込むか
@@ -220,12 +221,14 @@ if __name__ == '__main__':
     need_parallel_process = True # 並列処理が必要か
     use_Depthwise = False # DepthwiseConv2D を使うか
     use_CopyWeights = False # コールバックスで畳み込み層の重みをコピーするか
+    generate_learning_data = False # データセットの作成を行うか
     
     # プレースホルダー，デフォルト値
     data_directory = None
+    data_num = None
     dropout_rate = None # ドロップアウト層の値
     default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
-    input_num = None # inputの数を指定
+    input_num = None # inputの数
     output_num = 2 # 出力数のデフォルト値
     output_axis = 0
     n_jobs = 1 # シングルコアでの実行
@@ -237,19 +240,22 @@ if __name__ == '__main__':
         if sys.argv[i].lower().startswith('-h'):
             print(u'\n使い方:python %s -d dir_path' % os.path.basename(sys.argv[0]) + ' -d[irectory] dir_path ...\n' +
                    u'---- オプション ----\n' +
-                   u'-d[irectory] dir_path         -> 訓練データがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可\n' +
-                   u'-r[emove]                     -> 最適化の前回までのデータがある場合，それを消す．\n' +
+                   u'-d[irectory] dir_path       -> データセットがあるディレクトリを指定．zipファイルでも可．memmapファイルの入ったディレクトリでも可\n' +
+                   u'-g[enerate] data_num        -> データセットを作成します．\n' +
+                   u'-r[emove]                   -> 最適化の前回までのデータがある場合，それを消す．\n' +
                    u'-m[onte] ( --p[releraning]) ( --r[ate] dropout_rate) \n' +
-                   u'                              -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
-                   u'                              -> --p[releraning] : モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．\n' +
-                   u'                              -> --r[ate] dropout_rate : ドロップアウト率の変更（デフォルトで0.5）．\n' +
-                   u'-o[utput_num] number (axis)   -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
-                   u'-i[nitial]                    -> 最適化の初期値を固定して実行．\n' +
-                   u'-n n_jobs                     -> 並列処理の分割数をn_jobs個に設定．\n' +
-                   u'-tr[ial] n_trials             -> 最適化試行回数，n_trials回実行．\n' +
-                   u'-t[ime] time_out              -> [hour]最適化実行時間，time_out時間実行．\n' +
-                   u'-c[onfirmation]               -> 最適なハイパーパラメータの確認．\n' +
-                   u'-h[elp]                       -> ヘルプの表示．\n' +
+                   u'                            -> モンテカルロドロップアウト（予測時にもドロップアウト層を使うような学習モデルの作成）．\n' +
+                   u'                            -> --p[releraning] : モンテカルロドロップアウトによる学習の前にOptunaによる最適化を行う．\n' +
+                   u'                            -> --r[ate] dropout_rate : ドロップアウト率の変更（デフォルトで0.5）．\n' +
+                   u'-i[nput_num] number(1 or 2) -> 入力の数を指定，Normal, Depthwise の畳み込み層の場合は 1 , FunctionalAPI の場合は 2.\n' +
+                   u'-u[se] (d[epthwise] or c[opyweights]) \n' +
+                   u'                            -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
+                   u'-o[utput_num] number (axis) -> 出力の数を指定，出力の数が1の場合は軸（x, y, z）も指定．\n' +
+                   u'-n n_jobs                   -> 並列処理の分割数をn_jobs個に設定．\n' +
+                   u'-tr[ial] n_trials           -> 最適化試行回数，n_trials回実行．\n' +
+                   u'-t[ime] time_out            -> [hour]最適化実行時間，time_out時間実行．\n' +
+                   u'-c[onfirmation]             -> 最適なハイパーパラメータの確認．\n' +
+                   u'-h[elp]                     -> ヘルプの表示．\n' +
                    u'\nデフォルトの設定\n' +
                    u'訓練データの読み込み設定  : すべて読み込む\n' +
                    u'前回までの最適化データ    : 前回の続きから開始する\n' +
@@ -263,6 +269,10 @@ if __name__ == '__main__':
             i += 1
             data_directory = sys.argv[i]
             data_determination = True
+        elif sys.argv[i].lower().startswith('-g'):
+            i += 1
+            data_num = sys.argv[i]
+            generate_learning_data = True
         elif sys.argv[i].lower().startswith('-r'):
             reset_optimize = True
         elif sys.argv[i].lower().startswith('-m'):
@@ -280,14 +290,21 @@ if __name__ == '__main__':
                 if not sys.argv[i+1].startswith('--'):
                     break
                 i += 1
+        elif sys.argv[i].lower().startswith('-i'):
+            i += 1
+            input_num = int(sys.argv[i])
+        elif sys.argv[i].lower().startswith('-u'):
+            i += 1
+            if  sys.argv[i].lower().startswith('d'):
+                use_Depthwise = True
+            elif  sys.argv[i].lower().startswith('c'):
+                use_CopyWeights = True
         elif sys.argv[i].lower().startswith('-o'):
             i += 1
             output_num = int(sys.argv[i])
             if output_num == 1:
                 i += 1
                 output_axis = sys.argv[i]
-        elif sys.argv[i].lower().startswith('-i'):
-            set_initial_parms = True
         elif sys.argv[i].lower().startswith('-n'):
             i += 1
             n_jobs = max(int(sys.argv[i]),1)
@@ -310,6 +327,7 @@ if __name__ == '__main__':
     memmap_dir = 'memmap' # デフォルトでmemmapを保存するディレクトリ
     split_everything_to_learn_test = 0.2 # 8:2，学習データ:テストデータ
     split_leran_to_train_validation = 0.25 # 6:2:2，訓練データ:検証データ:テストデータ
+    split_rate = [split_everything_to_learn_test, split_leran_to_train_validation]
     best_model_name = 'best_model.h5'
     exist_best_model = os.path.exists(best_model_name)# 解析ディレクトリに学習モデルがあるかの確認．
     input_shape = (32, 32) # 入力データの形状，32[pixel]×32[pixel]
@@ -339,6 +357,14 @@ if __name__ == '__main__':
     
     # 出力数の決定
     if interactive_mode:
+        input_num = input_int('入力の数を入力してください．（Normal, Depthwise -> 1, FunctionalAPI -> 2 ）>> ') # 扱うinputの数
+        assert input_num == 1 or input_num == 2 # input_num が1か2でなければエラー
+        if input_num == 1:
+            if input_str('DepthwiseConv2Dを使いますか？(y or n) >> ').lower().strip().startswith('y'):
+                use_Depthwise = True
+        elif input_num == 2:
+            if input_str('CopyWeights関数を使いますか？(y or n) >> ').lower().strip().startswith('y'):
+                use_CopyWeights = True
         output_num = input_int('出力の数を入力してください．>> ') # 扱うoutputの数
         if output_num == 1:
             output_axis = input_int('出力の軸（推定したい速度方向）を入力してください．（x or y or z） >> ')
@@ -351,12 +377,13 @@ if __name__ == '__main__':
             output_axis = 2
     
     
-    # 学習データの読み込み
+    # データセットの読み込み
     if (interactive_mode or not data_determination) and not check_param:
-        data_directory = input_str('学習データのディレクトリを指定してください．>> ').strip()
-    if data_directory is None: # 学習データのディレクトリの中身がmemmapの拡張子か判定．
-        pass
-    elif any(['.npy' in i for i in os.listdir(data_directory)]):
+        data_directory = input_str('データセットのディレクトリを指定してください．>> ').strip()
+    if not os.path.exists(data_directory): # 指定したディレクトリがない場合
+        generate_learning_data = True
+        data_num = input_int('データセットを作成します．総データ数を指定してください．総データを訓練，検証，テストに6:2:2で分けます．>> ')
+    elif any(['.npy' in i for i in os.listdir(data_directory)]): # データセットのディレクトリの中身がmemmapの拡張子か判定．
         use_memmap = True
         need_parallel_process = False
         memmap_dir = data_directory
@@ -398,7 +425,11 @@ if __name__ == '__main__':
         minimize_loss = 1.0e5 # 最小値問題なので，初期値は何でもいいので大きい値．
 
     if not check_param:
-        if not use_memmap: # memmapファイルを使わない場合
+        if generate_learning_data:
+            memmap_dir = 'memmap_datanum={}'.format(data_num)
+            # データセットの作成
+            data_size = mkdata(data_num, memmap_dir, y_dim, split_rate)
+        if not use_memmap and not generate_learning_data: # memmapファイルを使わない場合
             os.makedirs(memmap_dir, exist_ok=True) # memmapファイルを保存するディレクトリの作成．
             if data_directory.endswith(u'.zip'):
                 with zipfile.ZipFile(data_directory) as zf:
@@ -408,12 +439,12 @@ if __name__ == '__main__':
             # データを使いやすい形に整理
             dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs)
             data_set = dataset.get_paths(data_directory)
-            print(u'総データ数： ' + str(len(data_set)))
+            print(u'総データ数: ' + str(len(data_set)))
             learning_data, test_data = train_test_split(data_set, test_size=split_everything_to_learn_test) # データセットを学習用データとテストデータに分割
             train_data, val_data = train_test_split(learning_data, test_size=split_leran_to_train_validation) # 学習用データを訓練データと検証データに分割
             data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir, globals().items())
         
-        elif use_memmap:
+        elif use_memmap and not generate_learning_data:
             data_size = []
             for i in ['train_data', 'val_data', 'test_data']:
                 y_path = 'y_' + i + '.npy'
@@ -425,7 +456,7 @@ if __name__ == '__main__':
         if max(data_size) > 100000:
             load_split_batch = True
         
-        # 学習データの絶対平均を計算, 
+        # データセットの絶対平均を計算, 
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
         
         if monte_carlo_dropout and not pre_training_MC:
