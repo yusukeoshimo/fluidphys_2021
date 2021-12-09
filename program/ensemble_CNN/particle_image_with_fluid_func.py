@@ -396,6 +396,7 @@ if __name__ =='__main__':
 
     # 学習，推論に使用するデータ数が指定されているのか確認，学習／推論する際に必要
     if data_num is None:
+        from convenient import input_int
         data_num = input_int('学習／推論に使うデータ数を指定してください．>> ')
         assert data_num != '' # 何も入力していない場合エラー
 
