@@ -11,6 +11,7 @@ from tensorflow.keras import callbacks
 def model_load(model_path):
     return tf.keras.models.load_model(model_path, custom_objects={'LeakyReLU': LeakyReLU, 'CopyWeights': CopyWeights})
 
+# グレースケール前提
 def check_input_shape(model):
     # tensorflow inputの見分け方
     #   1入力はタプルで囲まれる．ex. (None, 32, 32, 2)
