@@ -8,6 +8,8 @@ import tensorflow as tf
 from tensorflow.keras.layers import LeakyReLU
 from tensorflow.keras import callbacks
 
+from my_callbacks import CopyWeights
+
 def model_load(model_path):
     return tf.keras.models.load_model(model_path, custom_objects={'LeakyReLU': LeakyReLU, 'CopyWeights': CopyWeights})
 
@@ -30,20 +32,6 @@ def check_input_shape(model):
         return input_num, input_depth
     print('{} : 入力の形状を確認できませんでした．'.format(model))
     sys.exit(1) # 異常終了
-
-class CopyWeights(callbacks.Callback):
-    def __init__(self, model):
-        self.count = 0
-        self.model = model
-        
-    def on_train_batch_begin(self, batch, logs=None):# 1バッチの訓練が始まる際にすることを書く
-        conv_weights = self.model.get_layer('conv2D1').get_weights()
-        self.model.get_layer('conv2D2').set_weights(conv_weights)
-        self.count += 1
-        
-    def on_train_end(self, logs=None):
-        conv_weights = self.model.get_layer('conv2D1').get_weights()
-        self.model.get_layer('conv2D2').set_weights(conv_weights)
 
 # https://wak-tech.com/archives/1761
 def reset_weights(model):
