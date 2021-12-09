@@ -132,7 +132,7 @@ def objective(trial):
         layers = (conv2D_layer,
                   (Flatten),
                   *Dense_layer,
-                  (Dense, self.output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=kernel_regularizer)),
+                  (Dense, output_num, dict(activation='linear', kernel_initializer='glorot_normal', name='dense_last', kernel_regularizer=kernel_regularizer)),
                   )
         from my_model import my_sequential_model_builder
         model = my_sequential_model_builder(layers=layers, optimizer=OPTIMIZER, loss='mae', metrics='mape')
@@ -208,17 +208,18 @@ def objective(trial):
 
 if __name__ == '__main__':
     # if文判定用のフラグ
-    interactive_mode = True
-    data_determination = False
-    use_memmap = False
-    reset_optimize = False
-    load_split_batch = False
-    batch_determination = False
-    monte_carlo_dropout = False
-    pre_training_MC = False
-    set_initial_parms = False
-    check_param = False
-    need_parallel_process = True
+    interactive_mode = True # インタラクティブかどうか
+    data_determination = False # 訓練データを指定しているか
+    use_memmap = False # memmapファイルを使うか
+    reset_optimize = False # 前回の最適化データを消去するか
+    load_split_batch = False # バッチごとにデータを読み込むか
+    batch_determination = False # 
+    monte_carlo_dropout = False # 
+    pre_training_MC = False # 
+    set_initial_parms = False # 
+    check_param = False # 
+    need_parallel_process = True # 
+    
     # プレースホルダー，デフォルト値
     data_directory = None
     dropout_rate = None # ドロップアウト層の値
@@ -264,8 +265,6 @@ if __name__ == '__main__':
             data_determination = True
         elif sys.argv[i].lower().startswith('-r'):
             reset_optimize = True
-        elif sys.argv[i].lower().startswith('-b'):
-            load_split_batch = True
         elif sys.argv[i].lower().startswith('-m'):
             monte_carlo_dropout = True
             dropout_rate = default_dropout_rate # ドロップアウト層の値
@@ -362,11 +361,6 @@ if __name__ == '__main__':
         need_parallel_process = False
         memmap_dir = data_directory
     
-    # 学習データの読み込み条件の指定．
-    if (interactive_mode or not batch_determination) and not check_param:
-        if input_str('学習データをバッチごとに読み込みますか．（データが多いときはy，y/n）>> ').lower().strip().startswith('y'):
-            load_split_batch = True
-    
     # Optunaの設定，並列処理数の指定
     if interactive_mode:
         if input_str('Optunaによる最適化に指定した初期値を使いますか．（初期値は {} に直接書き込む必要があります．y/n）>> '.format(os.path.basename(sys.argv[0]))).lower().startswith('y'):
@@ -412,36 +406,12 @@ if __name__ == '__main__':
                     data_directory = os.path.splitext(os.path.basename(data_directory))[0]
             
             # データを使いやすい形に整理
-            if not load_split_batch:
-                dataset = MyDataset(y_dim)
-                input_data = dataset.im2array(data_directory, n_jobs=n_jobs) # 入力データの画像 -> 配列に変換
-                
-                 # 出力データの読み込み
-                output_path = glob(os.path.join(data_directory,'**', 'dataset_output.txt'), recursive=True)[0]
-                output_data = get_input_output_from_file(output_path, top_skip = 1, input_columns = None, output_columns = range(y_dim), delimiter = None, encoding = 'UTF-8')
-                
-                print(u'総データ数： ' + str(output_data.shape[0]))
-                
-                # 学習用データとテストデータに分割
-                x_learn, x_test_data, y_learn, y_test_data = train_test_split(input_data, output_data, test_size=split_everything_to_learn_test)
-                # 学習用データを訓練データと検証データに分割
-                x_train_data, x_val_data, y_train_data, y_val_data = train_test_split(x_learn, y_learn, test_size=split_leran_to_train_validation)
-                
-                dataset.save_memmap((x_train_data, x_test_data, x_val_data, y_val_data, y_train_data, y_test_data), memmap_dir, globals().items()) # memmapファイルを保存
-                data_size = [y_train_data[0], y_val_data[0], y_test_data[0]]
-                # メモリの開放
-                del input_data, output_data, x_test_data, y_test_data
-                gc.collect()
-
-            elif load_split_batch:
-                print('訓練データをバッチごとに読み込みます．')
-                # 訓練データをバッチごとに読み込むときのデータセット
-                dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs)
-                data_set = dataset.get_paths(data_directory)
-                print(u'総データ数： ' + str(len(data_set)))
-                learning_data, test_data = train_test_split(data_set, test_size=split_everything_to_learn_test) # データセットを学習用データとテストデータに分割
-                train_data, val_data = train_test_split(learning_data, test_size=split_leran_to_train_validation) # 学習用データを訓練データと検証データに分割
-                data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir, globals().items())
+            dataset = MyGeneratorDataset(y_dim=y_dim, n_jobs=n_jobs)
+            data_set = dataset.get_paths(data_directory)
+            print(u'総データ数： ' + str(len(data_set)))
+            learning_data, test_data = train_test_split(data_set, test_size=split_everything_to_learn_test) # データセットを学習用データとテストデータに分割
+            train_data, val_data = train_test_split(learning_data, test_size=split_leran_to_train_validation) # 学習用データを訓練データと検証データに分割
+            data_size = dataset.generate_memmap((train_data, val_data, test_data), memmap_dir, globals().items())
         
         elif use_memmap:
             data_size = []
@@ -450,7 +420,14 @@ if __name__ == '__main__':
                 y_memmap = np.memmap(filename=os.path.join(memmap_dir, y_path), dtype=np.float32, mode='r')
                 data_size.append(y_memmap.reshape(-1, y_dim).shape[0]) # memmapファイルを利用して学習を行う．
                 del y_memmap
+        
+        # データ数が10万以上のときはバッチごとにデータを読み込む
+        if max(data_size) > 100000:
+            load_split_batch = True
+        
+        # 学習データの絶対平均を計算, 
         am_list = calc_am(memmap_dir, y_dim, output_num, output_axis)
+        
         if monte_carlo_dropout and not pre_training_MC:
             restudy_by_monte_carlo_dropout(best_model_name, am_list, load_split_batch, memmap_dir, y_dim, output_num, output_axis, data_size, dropout_rate, study)
         else:
