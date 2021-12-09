@@ -213,17 +213,19 @@ if __name__ == '__main__':
     use_memmap = False # memmapファイルを使うか
     reset_optimize = False # 前回の最適化データを消去するか
     load_split_batch = False # バッチごとにデータを読み込むか
-    batch_determination = False # 
-    monte_carlo_dropout = False # 
-    pre_training_MC = False # 
-    set_initial_parms = False # 
-    check_param = False # 
-    need_parallel_process = True # 
+    monte_carlo_dropout = False # モンテカルロドロップアウトでの学習を行うか
+    pre_training_MC = False # モンテカルロドロップアウトを行う際に事前学習を行うか
+    set_initial_parms = False # Optuna 最適化の際に初期値を指定するか
+    check_param = False # Optuna の最適化されたパラメータを確認するか
+    need_parallel_process = True # 並列処理が必要か
+    use_Depthwise = False # DepthwiseConv2D を使うか
+    use_CopyWeights = False # コールバックスで畳み込み層の重みをコピーするか
     
     # プレースホルダー，デフォルト値
     data_directory = None
     dropout_rate = None # ドロップアウト層の値
     default_dropout_rate = 0.5 # デフォルトのドロップアウト層の値
+    input_num = None # inputの数を指定
     output_num = 2 # 出力数のデフォルト値
     output_axis = 0
     n_jobs = 1 # シングルコアでの実行
@@ -232,7 +234,6 @@ if __name__ == '__main__':
     i = 1
     while i < len(sys.argv):
         interactive_mode = False
-        batch_determination = True
         if sys.argv[i].lower().startswith('-h'):
             print(u'\n使い方:python %s -d dir_path' % os.path.basename(sys.argv[0]) + ' -d[irectory] dir_path ...\n' +
                    u'---- オプション ----\n' +

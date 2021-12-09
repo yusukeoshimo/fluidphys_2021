@@ -6,6 +6,7 @@
 import tensorflow as tf
 import numpy as np
 import os
+import sys
 import math
 import gc
 import ast
@@ -19,6 +20,26 @@ from tensorflow.keras import callbacks
 from tensorflow.keras.utils import Sequence
 
 from read_data import read_ymemmap
+
+# グレースケール前提
+def check_input_shape(model):
+    # tensorflow inputの見分け方
+    #   1入力はタプルで囲まれる．ex. (None, 32, 32, 2)
+    #   複数入力はタプルで囲まれたものが入力分あり，それがリストの中に入っている．
+    #                          ex. [(None, 32, 32), (None, 32, 32)]
+    #   model.input_shapeでインスタンス化したモデルの入力の形を確認できる．
+    
+    input_shape = model.input_shape
+    if isinstance(input_shape, tuple): # タプルかどうか判定
+        input_num = 1 # 入力は1つ
+        input_depth = input_shape[-1] # 画像の深さ方向は -1 番目の要素
+        return input_num, input_depth
+    elif isinstance(input_shape, list): # リストかどうか判定
+        input_num = len(input_shape) # 入力はリストの要素数
+        input_depth = 1 # 画像の深さ方向は1
+        return input_num, input_depth
+    print('{} : 入力の形状を確認できませんでした．'.format(model))
+    sys.exit(1) # 異常終了
 
 class MySequence(Sequence): # generator
     def __init__(self, data_size, batch_size, file_name=None, memmap_dir=None, y_dim=None, output_num=None, output_axis=None):
