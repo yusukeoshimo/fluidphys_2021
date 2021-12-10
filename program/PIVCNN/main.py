@@ -64,8 +64,17 @@ from data_processing import MyDataset, MyGeneratorDataset
 from my_model import model_train, calc_am
 from my_callbacks import LossHistory, CopyWeights
 from monte_carlo_dropout import restudy_by_monte_carlo_dropout
-from convenient import input_float, input_int, input_str
+from convenient import input_float, input_int, input_str, write_txt
 from particle_image_with_fluid_func import mkdata
+
+def write_best_param(trial):
+    contents = ("Best trial: {}\n".format(trial._trial_id - 1) +
+                " Value: {}\n".format(trial.value) +
+                " Params: \n"
+               )
+    for key, value in trial.params.items():
+        contents += "    {}: {} \n".format(key, value)
+    write_txt('best_model_param.txt', 'w', contents)
 
 def objective(trial):
     # Clear clutter from previous Keras session graphs.
@@ -198,6 +207,7 @@ def objective(trial):
     if minimize_loss > loss:
         minimize_loss = loss
         model.save(best_model_name)
+        write_best_param(trial)
 
     #メモリの開放
     keras.backend.clear_session()
